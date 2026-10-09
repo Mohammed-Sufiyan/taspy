@@ -102,6 +102,14 @@ void main() {
       expect(repo.loadAll(), throwsA(isA<CardStoreException>()));
     });
 
+    test('tap history saves and loads; a damaged file starts over', () async {
+      final t = TapEvent(cardId: 'x', at: DateTime(2026, 10, 9));
+      await repo.saveTaps([t]);
+      expect((await repo.loadTaps()).single.cardId, 'x');
+      File('${dir.path}/taps.json').writeAsStringSync('garbage');
+      expect(await repo.loadTaps(), isEmpty);
+    });
+
     test('refuses data from a newer schema', () async {
       File(
         '${dir.path}/cards.json',
@@ -183,6 +191,29 @@ void main() {
       repo.failSaves = true;
       await expectLater(addDefault(), throwsA(isA<CardStoreException>()));
       expect(cards.cards, isEmpty);
+    });
+
+    test('markTriggered keeps a capped, newest-first tap history', () async {
+      final c = await addDefault();
+      for (var i = 0; i < CardsController.maxTaps + 5; i++) {
+        await cards.markTriggered(
+          c.id,
+          at: DateTime(2026, 1, 1).add(Duration(minutes: i)),
+        );
+      }
+      expect(repo.taps, hasLength(CardsController.maxTaps));
+      expect(repo.taps.first.at.isAfter(repo.taps.last.at), isTrue);
+      expect(cards.tapsOf(c.id), hasLength(CardsController.maxTaps));
+    });
+
+    test('taps of deleted cards are hidden; undo restores the card', () async {
+      final c = await addDefault();
+      await cards.markTriggered(c.id);
+      await cards.delete(c.id);
+      expect(cards.taps, isEmpty);
+      await cards.restore(c);
+      expect(cards.cards.single.id, c.id);
+      expect(cards.taps, hasLength(1));
     });
 
     test('markTriggered records the time', () async {

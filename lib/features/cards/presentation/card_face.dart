@@ -1,26 +1,274 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 
+import '../../../app/theme.dart';
+import '../../../shared/device_tilt.dart';
 import '../../../shared/motion.dart';
 
-class CardPalette {
-  const CardPalette(this.name, this.start, this.end);
+/// A painted card design. Stored on each card as an index ([RegisteredCard.style]).
+class CardSkin {
+  const CardSkin(this.name, this.paint, {this.dark = true, this.chip});
 
   final String name;
-  final Color start;
-  final Color end;
+  final void Function(Canvas canvas, Size size) paint;
 
-  static const all = [
-    CardPalette('Teal', Color(0xFF0E7C7B), Color(0xFF2DD4BF)),
-    CardPalette('Ocean', Color(0xFF1D4ED8), Color(0xFF38BDF8)),
-    CardPalette('Grape', Color(0xFF6D28D9), Color(0xFFC084FC)),
-    CardPalette('Sunset', Color(0xFFEA580C), Color(0xFFFBBF24)),
-    CardPalette('Rose', Color(0xFFBE185D), Color(0xFFFB7185)),
-    CardPalette('Night', Color(0xFF111827), Color(0xFF4B5563)),
+  /// True when the art is dark, so text and icons are drawn light.
+  final bool dark;
+  final Color? chip;
+
+  Color get ink => dark ? Colors.white : const Color(0xFF18181B);
+  Color get inkMuted => dark ? Colors.white70 : const Color(0xFF3F3F46);
+
+  static final all = <CardSkin>[
+    const CardSkin('Midnight', _midnight, chip: TapsyColors.lime),
+    const CardSkin('Aurora', _aurora),
+    const CardSkin('Holo', _holo, dark: false),
+    const CardSkin('Steel', _steel, dark: false),
+    const CardSkin('Carbon', _carbon, chip: TapsyColors.lime),
+    const CardSkin('Sunset', _sunset),
+    const CardSkin('Ocean', _ocean),
+    const CardSkin('Neon', _neon),
   ];
 
-  static CardPalette of(int style) => all[style % all.length];
+  static CardSkin of(int style) => all[style % all.length];
+
+  /// The dominant colour, used for glows behind the card.
+  static Color glowOf(int style) => const [
+    TapsyColors.lime,
+    Color(0xFF9B5CFF),
+    Color(0xFFB8E1FF),
+    Color(0xFFD4D4D8),
+    TapsyColors.lime,
+    Color(0xFFFF7A59),
+    Color(0xFF22D3EE),
+    Color(0xFFFF3DCB),
+  ][style % all.length];
 }
+
+// ---- Skin painters ----------------------------------------------------------------------
+
+Rect _r(Size s) => Offset.zero & s;
+
+void _midnight(Canvas c, Size s) {
+  c.drawRect(
+    _r(s),
+    Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFF18181B), Color(0xFF0A0A0B)],
+      ).createShader(_r(s)),
+  );
+  final center = Offset(s.width * 0.92, s.height * 0.05);
+  for (var i = 1; i <= 7; i++) {
+    c.drawCircle(
+      center,
+      s.width * 0.14 * i,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..color = TapsyColors.lime.withValues(alpha: 0.32 - i * 0.035),
+    );
+  }
+}
+
+void _aurora(Canvas c, Size s) {
+  c.drawRect(_r(s), Paint()..color = const Color(0xFF120B2E));
+  void blob(double x, double y, double r, Color color) => c.drawCircle(
+    Offset(s.width * x, s.height * y),
+    s.width * r,
+    Paint()
+      ..color = color
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, s.width * 0.12),
+  );
+  blob(0.15, 0.2, 0.35, const Color(0xFF7C3AED));
+  blob(0.8, 0.1, 0.3, const Color(0xFFDB2777));
+  blob(0.65, 0.9, 0.38, const Color(0xFF2563EB));
+  blob(0.2, 1.0, 0.25, const Color(0xFF06B6D4));
+}
+
+void _holo(Canvas c, Size s) {
+  c.drawRect(
+    _r(s),
+    Paint()
+      ..shader = const SweepGradient(
+        center: Alignment(-0.4, -0.2),
+        colors: [
+          Color(0xFFFDE2FF),
+          Color(0xFFC7F0FF),
+          Color(0xFFD9FFD6),
+          Color(0xFFFFF4C2),
+          Color(0xFFFFD6E8),
+          Color(0xFFFDE2FF),
+        ],
+      ).createShader(_r(s)),
+  );
+  for (var i = 0; i < 6; i++) {
+    final x = s.width * (i * 0.22 - 0.2);
+    c.drawPath(
+      Path()
+        ..moveTo(x, 0)
+        ..lineTo(x + s.width * 0.08, 0)
+        ..lineTo(x + s.width * 0.08 + s.height * 0.6, s.height)
+        ..lineTo(x + s.height * 0.6, s.height)
+        ..close(),
+      Paint()..color = Colors.white.withValues(alpha: 0.28),
+    );
+  }
+}
+
+void _steel(Canvas c, Size s) {
+  c.drawRect(
+    _r(s),
+    Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFFE4E4E7), Color(0xFFA1A1AA), Color(0xFFE4E4E7)],
+      ).createShader(_r(s)),
+  );
+  final rnd = math.Random(7);
+  final line = Paint()..strokeWidth = 0.6;
+  for (var y = 0.0; y < s.height; y += 1.6) {
+    line.color = (rnd.nextBool() ? Colors.white : Colors.black).withValues(
+      alpha: 0.05 + rnd.nextDouble() * 0.06,
+    );
+    c.drawLine(Offset(0, y), Offset(s.width, y), line);
+  }
+}
+
+void _carbon(Canvas c, Size s) {
+  c.drawRect(_r(s), Paint()..color = const Color(0xFF151517));
+  final a = Paint()..color = const Color(0xFF1F1F23);
+  final b = Paint()..color = const Color(0xFF0E0E10);
+  final cell = s.width / 36;
+  for (var y = 0; y * cell < s.height; y++) {
+    for (var x = 0; x * cell < s.width; x++) {
+      c.drawRect(
+        Rect.fromLTWH(x * cell, y * cell, cell, cell * 0.5),
+        (x + y).isEven ? a : b,
+      );
+    }
+  }
+  c.drawRect(
+    _r(s),
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Colors.white.withValues(alpha: 0.06), Colors.transparent],
+      ).createShader(_r(s)),
+  );
+}
+
+void _sunset(Canvas c, Size s) {
+  c.drawRect(
+    _r(s),
+    Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFFE11D48), Color(0xFFF97316), Color(0xFFFBBF24)],
+      ).createShader(_r(s)),
+  );
+  _contours(c, s, Colors.white.withValues(alpha: 0.16));
+}
+
+void _ocean(Canvas c, Size s) {
+  c.drawRect(
+    _r(s),
+    Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.bottomLeft,
+        end: Alignment.topRight,
+        colors: [Color(0xFF1E3A8A), Color(0xFF0891B2), Color(0xFF22D3EE)],
+      ).createShader(_r(s)),
+  );
+  final p = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.4
+    ..color = Colors.white.withValues(alpha: 0.18);
+  for (var i = 0; i < 9; i++) {
+    final y = s.height * (0.25 + i * 0.09);
+    final path = Path()..moveTo(0, y);
+    for (var x = 0.0; x <= s.width; x += s.width / 24) {
+      path.lineTo(
+        x,
+        y + math.sin(x / s.width * math.pi * 3 + i) * s.height * 0.03,
+      );
+    }
+    c.drawPath(path, p);
+  }
+}
+
+void _neon(Canvas c, Size s) {
+  c.drawRect(_r(s), Paint()..color = const Color(0xFF07040F));
+  final horizon = s.height * 0.45;
+  final pink = Paint()
+    ..strokeWidth = 1
+    ..color = const Color(0xFFFF3DCB).withValues(alpha: 0.55);
+  final cyan = Paint()
+    ..strokeWidth = 1
+    ..color = const Color(0xFF22D3EE).withValues(alpha: 0.45);
+  for (var i = 0; i < 8; i++) {
+    final t = i / 7;
+    final y = horizon + (s.height - horizon) * t * t;
+    c.drawLine(Offset(0, y), Offset(s.width, y), pink);
+  }
+  for (var i = -8; i <= 8; i++) {
+    c.drawLine(
+      Offset(s.width / 2 + i * s.width * 0.04, horizon),
+      Offset(s.width / 2 + i * s.width * 0.22, s.height),
+      cyan,
+    );
+  }
+  c.drawCircle(
+    Offset(s.width * 0.5, horizon),
+    s.width * 0.18,
+    Paint()
+      ..color = const Color(0xFFFF3DCB).withValues(alpha: 0.5)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, s.width * 0.08),
+  );
+}
+
+void _contours(Canvas c, Size s, Color color) {
+  final p = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.2
+    ..color = color;
+  final center = Offset(s.width * 0.78, s.height * 0.7);
+  for (var i = 1; i <= 9; i++) {
+    final path = Path();
+    var first = true;
+    for (var a = 0.0; a <= math.pi * 2 + 0.01; a += math.pi / 30) {
+      final r = s.width * 0.07 * i * (1 + 0.12 * math.sin(a * 3 + i));
+      final pt = center + Offset(math.cos(a) * r, math.sin(a) * r * 0.75);
+      if (first) {
+        path.moveTo(pt.dx, pt.dy);
+        first = false;
+      } else {
+        path.lineTo(pt.dx, pt.dy);
+      }
+    }
+    c.drawPath(path, p);
+  }
+}
+
+class _SkinPainter extends CustomPainter {
+  _SkinPainter(this.skin);
+
+  final CardSkin skin;
+
+  @override
+  void paint(Canvas canvas, Size size) => skin.paint(canvas, size);
+
+  @override
+  bool shouldRepaint(_SkinPainter old) => old.skin != skin;
+}
+
+// ---- Card face ---------------------------------------------------------------------------
 
 /// A registered card drawn like a real payment card.
 class CardFace extends StatelessWidget {
@@ -30,6 +278,8 @@ class CardFace extends StatelessWidget {
     required this.style,
     this.enabled = true,
     this.subtitle,
+    this.shine = true,
+    this.compact = false,
   });
 
   final String name;
@@ -37,104 +287,64 @@ class CardFace extends StatelessWidget {
   final bool enabled;
   final String? subtitle;
 
+  /// Moving highlight that follows the phone's tilt.
+  final bool shine;
+
+  /// Hides the details for small thumbnails.
+  final bool compact;
+
   static const aspectRatio = 1.586; // ISO/IEC 7810 ID-1
 
   @override
   Widget build(BuildContext context) {
-    final palette = CardPalette.of(style);
+    final skin = CardSkin.of(style);
     final face = AspectRatio(
       aspectRatio: aspectRatio,
       child: LayoutBuilder(
         builder: (context, box) {
           final w = box.maxWidth;
+          final radius = BorderRadius.circular(w * 0.065);
           return DecoratedBox(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(w * 0.06),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [palette.start, palette.end],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: palette.start.withValues(alpha: 0.35),
-                  blurRadius: w * 0.08,
-                  offset: Offset(0, w * 0.03),
-                ),
-              ],
+              borderRadius: radius,
+              boxShadow: compact
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        blurRadius: w * 0.08,
+                        offset: Offset(0, w * 0.04),
+                      ),
+                    ],
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(w * 0.06),
+              borderRadius: radius,
               child: Stack(
+                fit: StackFit.expand,
                 children: [
-                  // Soft decorative circles for depth.
-                  Positioned(
-                    right: -w * 0.18,
-                    top: -w * 0.22,
-                    child: _Blob(size: w * 0.7),
+                  RepaintBoundary(
+                    child: CustomPaint(painter: _SkinPainter(skin)),
                   ),
-                  Positioned(
-                    left: -w * 0.25,
-                    bottom: -w * 0.35,
-                    child: _Blob(size: w * 0.6),
-                  ),
-                  Padding(
-                    padding: EdgeInsets.all(w * 0.07),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              'tapsy',
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.9),
-                                fontWeight: FontWeight.w800,
-                                fontSize: w * 0.06,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                            const Spacer(),
-                            Icon(
-                              Icons.contactless_outlined,
-                              color: Colors.white,
-                              size: w * 0.1,
-                            ),
-                          ],
-                        ),
-                        const Spacer(),
-                        Container(
-                          width: w * 0.13,
-                          height: w * 0.1,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF5B841),
-                            borderRadius: BorderRadius.circular(w * 0.018),
-                          ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          name.isEmpty ? 'Your card' : name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: w * 0.075,
-                          ),
-                        ),
-                        if (subtitle != null)
-                          Text(
-                            subtitle!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.8),
-                              fontSize: w * 0.045,
-                            ),
-                          ),
-                      ],
+                  if (shine && !compact) const _Shine(),
+                  // Thin bright rim, like a card edge catching light.
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: radius,
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.12),
+                      ),
                     ),
                   ),
+                  if (!compact)
+                    Padding(
+                      padding: EdgeInsets.all(w * 0.07),
+                      child: _Details(
+                        skin: skin,
+                        name: name,
+                        subtitle: subtitle,
+                        width: w,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -147,20 +357,31 @@ class CardFace extends StatelessWidget {
       children: [
         ColorFiltered(
           colorFilter: const ColorFilter.matrix([
-            0.33, 0.33, 0.33, 0, 0, //
-            0.33, 0.33, 0.33, 0, 0, //
-            0.33, 0.33, 0.33, 0, 0, //
-            0, 0, 0, 0.55, 0, //
+            0.3, 0.3, 0.3, 0, 0, //
+            0.3, 0.3, 0.3, 0, 0, //
+            0.3, 0.3, 0.3, 0, 0, //
+            0, 0, 0, 0.6, 0, //
           ]),
           child: face,
         ),
-        const Positioned(
-          right: 12,
-          bottom: 12,
-          child: Chip(
-            label: Text('Off'),
-            avatar: Icon(Icons.pause_circle_outline, size: 18),
-            visualDensity: VisualDensity.compact,
+        Positioned(
+          right: 14,
+          top: 14,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text(
+              'PAUSED',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.2,
+                color: TapsyColors.text,
+              ),
+            ),
           ),
         ),
       ],
@@ -168,20 +389,133 @@ class CardFace extends StatelessWidget {
   }
 }
 
-class _Blob extends StatelessWidget {
-  const _Blob({required this.size});
+class _Details extends StatelessWidget {
+  const _Details({
+    required this.skin,
+    required this.name,
+    required this.subtitle,
+    required this.width,
+  });
 
-  final double size;
+  final CardSkin skin;
+  final String name;
+  final String? subtitle;
+  final double width;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(
-      shape: BoxShape.circle,
-      color: Colors.white.withValues(alpha: 0.09),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final w = width;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              'tapsy',
+              style: TextStyle(
+                color: skin.ink,
+                fontWeight: FontWeight.w800,
+                fontSize: w * 0.058,
+                letterSpacing: -0.3,
+              ),
+            ),
+            const Spacer(),
+            Icon(Icons.contactless_outlined, color: skin.ink, size: w * 0.09),
+          ],
+        ),
+        const Spacer(),
+        Container(
+          width: w * 0.12,
+          height: w * 0.09,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(w * 0.018),
+            gradient: LinearGradient(
+              colors: [
+                skin.chip ?? const Color(0xFFF5D27A),
+                (skin.chip ?? const Color(0xFFC9A34A)).withValues(alpha: 0.7),
+              ],
+            ),
+          ),
+        ),
+        const Spacer(),
+        Text(
+          name.isEmpty ? 'YOUR CARD' : name.toUpperCase(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: skin.ink,
+            fontWeight: FontWeight.w700,
+            fontSize: w * 0.062,
+            letterSpacing: 1.2,
+          ),
+        ),
+        if (subtitle != null)
+          Padding(
+            padding: EdgeInsets.only(top: w * 0.008),
+            child: Text(
+              subtitle!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: skin.inkMuted, fontSize: w * 0.04),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Diagonal light band that slides across the card as the phone tilts.
+class _Shine extends StatefulWidget {
+  const _Shine();
+
+  @override
+  State<_Shine> createState() => _ShineState();
+}
+
+class _ShineState extends State<_Shine> {
+  bool _listening = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final want = !reduceMotion(context);
+    if (want && !_listening) DeviceTilt.instance.acquire();
+    if (!want && _listening) DeviceTilt.instance.release();
+    _listening = want;
+  }
+
+  @override
+  void dispose() {
+    if (_listening) DeviceTilt.instance.release();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: ValueListenableBuilder<Offset>(
+        valueListenable: DeviceTilt.instance,
+        builder: (_, tilt, _) {
+          final x = tilt.dx * 1.4 - 0.2;
+          final y = tilt.dy * 1.4 - 0.2;
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment(x - 1.2, y - 1.2),
+                end: Alignment(x + 1.2, y + 1.2),
+                colors: [
+                  Colors.white.withValues(alpha: 0),
+                  Colors.white.withValues(alpha: 0.16),
+                  Colors.white.withValues(alpha: 0),
+                ],
+                stops: const [0.35, 0.5, 0.65],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
 }
 
 /// Tilts its child in 3D as the user drags across it, then springs back.
@@ -269,9 +603,9 @@ class _TiltOnDragState extends State<TiltOnDrag>
   }
 }
 
-/// Row of colour dots for picking a card style.
-class PalettePicker extends StatelessWidget {
-  const PalettePicker({
+/// Horizontal strip of mini cards for picking a skin.
+class SkinPicker extends StatefulWidget {
+  const SkinPicker({
     super.key,
     required this.value,
     required this.onChanged,
@@ -283,54 +617,86 @@ class PalettePicker extends StatelessWidget {
   final bool enabled;
 
   @override
+  State<SkinPicker> createState() => _SkinPickerState();
+}
+
+class _SkinPickerState extends State<SkinPicker> {
+  static const _itemWidth = 92.0;
+  late final _scroll = ScrollController(
+    initialScrollOffset: math.max(0, widget.value * (_itemWidth + 12) - 40),
+  );
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: [
-        for (var i = 0; i < CardPalette.all.length; i++)
-          Semantics(
+    return SizedBox(
+      height: 92,
+      child: ListView.separated(
+        controller: _scroll,
+        scrollDirection: Axis.horizontal,
+        itemCount: CardSkin.all.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, i) {
+          final selected = i == widget.value;
+          return Semantics(
             button: true,
-            selected: i == value,
-            label: '${CardPalette.all[i].name} card colour',
+            selected: selected,
+            label: '${CardSkin.all[i].name} card design',
             child: GestureDetector(
-              key: ValueKey('palette-$i'),
-              onTap: enabled
+              key: ValueKey('skin-$i'),
+              onTap: widget.enabled
                   ? () {
                       Haptics.detected();
-                      onChanged(i);
+                      widget.onChanged(i);
                     }
                   : null,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOutBack,
-                width: 44,
-                height: 44,
-                padding: EdgeInsets.all(i == value ? 4 : 0),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: i == value
-                        ? Theme.of(context).colorScheme.onSurface
-                        : Colors.transparent,
-                    width: 2,
-                  ),
-                ),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      colors: [
-                        CardPalette.all[i].start,
-                        CardPalette.all[i].end,
-                      ],
+              child: Column(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutBack,
+                    width: _itemWidth,
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: selected ? TapsyColors.lime : Colors.transparent,
+                        width: 2,
+                      ),
+                    ),
+                    child: AnimatedScale(
+                      scale: selected ? 1 : 0.92,
+                      duration: const Duration(milliseconds: 220),
+                      child: CardFace(
+                        name: '',
+                        style: i,
+                        compact: true,
+                        shine: false,
+                      ),
                     ),
                   ),
-                ),
+                  const SizedBox(height: 6),
+                  Text(
+                    CardSkin.all[i].name,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                      color: selected
+                          ? TapsyColors.lime
+                          : TapsyColors.textMuted,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-      ],
+          );
+        },
+      ),
     );
   }
 }

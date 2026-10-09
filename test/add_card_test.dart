@@ -166,10 +166,10 @@ void main() {
     // Live preview on the card face.
     expect(find.text('SBI Card'), findsWidgets);
 
-    final grape = find.byKey(const ValueKey('palette-2'));
+    final grape = find.byKey(const ValueKey('skin-2'));
     await tester.scrollUntilVisible(grape, -200, scrollable: list);
     await tester.tap(grape);
-    final save = find.text('Save card');
+    final save = find.text('SAVE CARD');
     await tester.scrollUntilVisible(save, 200, scrollable: list);
     await tester.tap(save);
     await tester.pump(const Duration(milliseconds: 300));

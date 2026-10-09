@@ -183,7 +183,8 @@ class _ConfettiBurstState extends State<ConfettiBurst>
   late final List<_Piece> _pieces;
 
   static const _colors = [
-    Color(0xFF14B8A6),
+    Color(0xFFC6FF3D),
+    Color(0xFFFFFFFF),
     Color(0xFFF5B841),
     Color(0xFFFB7185),
     Color(0xFF818CF8),

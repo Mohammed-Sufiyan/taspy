@@ -15,4 +15,12 @@ class MemoryCardRepository implements CardRepository {
     saves++;
     stored = List.of(cards);
   }
+
+  List<TapEvent> taps = [];
+
+  @override
+  Future<List<TapEvent>> loadTaps() async => List.of(taps);
+
+  @override
+  Future<void> saveTaps(List<TapEvent> value) async => taps = List.of(value);
 }

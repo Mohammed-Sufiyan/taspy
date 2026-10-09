@@ -1,16 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
+import '../../../app/theme.dart';
+import '../../../shared/format.dart';
 import '../../../shared/motion.dart';
+import '../../../shared/widgets/glow_background.dart';
+import '../../../shared/widgets/pop_button.dart';
 import '../../../shared/widgets/tapsy_mark.dart';
 import '../../nfc/data/nfc_platform.dart';
 import '../../nfc/domain/nfc_models.dart';
 import '../../settings/settings_screen.dart';
+import '../../tap/tap_app.dart';
 import '../domain/registered_card.dart';
+import '../domain/tap_resolver.dart';
 import 'add_card_screen.dart';
 import 'card_details_screen.dart';
 import 'card_face.dart';
 import 'cards_controller.dart';
+import 'wallet_stack.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.platform, required this.cards});
@@ -24,14 +31,10 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final AppLifecycleListener _lifecycle;
+  final _stackKey = GlobalKey<WalletStackState>();
   NfcStatus? _status;
-
-  /// Animate the list only on first appearance, not on every rebuild.
+  Color _glow = TapsyColors.lime;
   bool _introPlayed = false;
-
-  /// Cards swiped away but possibly still being deleted from storage. A
-  /// dismissed Dismissible must leave the tree immediately.
-  final _hidden = <String>{};
 
   @override
   void initState() {
@@ -46,7 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  /// NFC may have been toggled, and the tap popup may have updated a card.
+  /// NFC may have been toggled, and the tap popup may have recorded taps.
   Future<void> _refresh() async {
     widget.cards.load();
     try {
@@ -58,6 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _addCard() async {
+    _stackKey.currentState?.deselect();
     final added = await Navigator.of(context).push<String>(
       MaterialPageRoute(
         builder: (_) =>
@@ -71,226 +75,261 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _delete(RegisteredCard card) async {
-    final messenger = ScaffoldMessenger.of(context);
-    setState(() => _hidden.add(card.id));
-    try {
-      await widget.cards.delete(card.id);
-    } catch (e) {
-      if (mounted) setState(() => _hidden.remove(card.id));
-      messenger.showSnackBar(SnackBar(content: Text('$e')));
-      return;
-    }
-    _hidden.remove(card.id);
-    Haptics.success();
-    messenger
+  Future<void> _open(RegisteredCard card) async {
+    final deleted = await Navigator.of(context).push<RegisteredCard>(
+      MaterialPageRoute(
+        builder: (_) => CardDetailsScreen(
+          cards: widget.cards,
+          cardId: card.id,
+          platform: widget.platform,
+        ),
+      ),
+    );
+    if (deleted == null || !mounted) return;
+    _stackKey.currentState?.deselect();
+    ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text('"${card.name}" deleted'),
+          content: Text('"${deleted.name}" deleted'),
           action: SnackBarAction(
             label: 'Undo',
-            onPressed: () => widget.cards.restore(card),
+            onPressed: () => widget.cards.restore(deleted),
           ),
         ),
       );
   }
 
+  void _preview(RegisteredCard card) {
+    Haptics.celebrate();
+    widget.platform.playTapSound();
+    showTapPopupPreview(context, RegisteredTap(card));
+  }
+
+  Future<void> _toggle(RegisteredCard card) async {
+    try {
+      await widget.cards.setEnabled(card.id, !card.enabled);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 16,
-        title: Row(
-          children: [
-            const TapsyMark(size: 32, tile: true, animate: false),
-            const SizedBox(width: 10),
-            Text(
-              'Tapsy',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
+    final noNfc = _status?.hardware == false;
+    return GlowBackground(
+      color: _glow,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          titleSpacing: 20,
+          title: Row(
+            children: [
+              const TapsyMark(size: 30, tile: true, animate: false),
+              const SizedBox(width: 10),
+              Text(
+                'tapsy',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.5,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            IconButton(
+              tooltip: 'Settings',
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => SettingsScreen(platform: widget.platform),
+                ),
               ),
             ),
+            const SizedBox(width: 8),
           ],
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Settings',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => SettingsScreen(platform: widget.platform),
-              ),
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: _status?.hardware == false
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: _addCard,
-              icon: const Icon(Icons.add_card),
-              label: const Text('Add card'),
-            ).animate().scale(
-              delay: 300.ms,
-              duration: 500.ms,
-              curve: Curves.elasticOut,
-            ),
-      body: ListenableBuilder(
-        listenable: widget.cards,
-        builder: (context, _) {
-          final c = widget.cards;
-          final cards = c.cards.where((x) => !_hidden.contains(x.id)).toList();
-          final animate = !_introPlayed && !reduceMotion(context);
-          if (!c.loading) _introPlayed = true;
-
-          final children = <Widget>[
-            if (_status case final s? when !s.hardware || !s.enabled)
-              _NfcBanner(
-                status: s,
-                onOpenSettings: widget.platform.openSettings,
-              ),
-            if (c.loadError case final error?)
-              Card(
-                color: theme.colorScheme.errorContainer,
-                child: ListTile(
-                  leading: const Icon(Icons.error_outline),
-                  title: const Text('Could not load your cards'),
-                  subtitle: Text(error),
+        floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+        floatingActionButton: ListenableBuilder(
+          listenable: widget.cards,
+          builder: (context, _) => noNfc || widget.cards.cards.isEmpty
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 72),
+                  child: PopButton(
+                    label: 'ADD CARD',
+                    icon: Icons.add_rounded,
+                    onPressed: _addCard,
+                  ),
                 ),
-              )
-            else if (c.loading && cards.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(32),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (cards.isEmpty)
-              _EmptyState(onAdd: _status?.hardware == false ? null : _addCard)
-            else ...[
+        ),
+        body: ListenableBuilder(
+          listenable: widget.cards,
+          builder: (context, _) {
+            final c = widget.cards;
+            final animate = !_introPlayed && !reduceMotion(context);
+            if (!c.loading) _introPlayed = true;
+
+            final children = <Widget>[
+              if (_status case final s? when !s.hardware || !s.enabled)
+                _NfcBanner(
+                  status: s,
+                  onOpenSettings: widget.platform.openSettings,
+                ),
+              if (c.loadError case final error?)
+                _ErrorPanel(message: error)
+              else if (c.loading && c.cards.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(48),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (c.cards.isEmpty)
+                _EmptyState(onAdd: noNfc ? null : _addCard)
+              else ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
+                  child: Text(
+                    'Your cards',
+                    style: theme.textTheme.headlineMedium,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 20),
+                  child: Text(
+                    c.cards.length > 1
+                        ? '${c.cards.length} cards · tap one, or swipe the front card up'
+                        : 'Tap your card to see more',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+                WalletStack(
+                  key: _stackKey,
+                  cards: c.cards,
+                  tapsOf: c.tapsOf,
+                  onPreview: _preview,
+                  onToggle: _toggle,
+                  onOpen: _open,
+                  onFocusChanged: (card) {
+                    final color = card == null
+                        ? TapsyColors.lime
+                        : CardSkin.glowOf(card.style);
+                    if (color != _glow) setState(() => _glow = color);
+                  },
+                ),
+                const SizedBox(height: 28),
+                _RecentTaps(cards: c.cards, taps: c.taps),
+              ],
+            ];
+
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 120),
+              children: animate
+                  ? children
+                        .animate(interval: 80.ms)
+                        .fadeIn(duration: 400.ms)
+                        .slideY(begin: 0.08, curve: Curves.easeOutCubic)
+                  : children,
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentTaps extends StatelessWidget {
+  const _RecentTaps({required this.cards, required this.taps});
+
+  final List<RegisteredCard> cards;
+  final List<TapEvent> taps;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final byId = {for (final c in cards) c.id: c};
+    final recent = taps.take(6).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Recent taps', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 12),
+        if (recent.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: TapsyColors.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: TapsyColors.outline),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.contactless_outlined, color: TapsyColors.lime),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    'Tap a card on the back of your phone. Your taps show up here.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          for (final t in recent)
+            if (byId[t.cardId] case final card?)
               Padding(
-                padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
-                child: Text(
-                  cards.length == 1
-                      ? '1 card · swipe left to delete'
-                      : '${cards.length} cards · swipe left to delete',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: TapsyColors.surface,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: TapsyColors.outline),
+                  ),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 52,
+                        child: CardFace(
+                          name: '',
+                          style: card.style,
+                          compact: true,
+                          shine: false,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(card.name, style: theme.textTheme.titleSmall),
+                            Text(
+                              card.message,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        timeAgo(t.at),
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: TapsyColors.lime,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-              for (final card in cards)
-                _CardTile(
-                  key: ValueKey(card.id),
-                  card: card,
-                  onDelete: () => _delete(card),
-                  onOpen: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          CardDetailsScreen(cards: c, cardId: card.id),
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 8),
-              const _HowItWorks(),
-            ],
-          ];
-
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 112),
-            children: animate
-                ? children
-                      .animate(interval: 70.ms)
-                      .fadeIn(duration: 350.ms)
-                      .slideY(begin: 0.12, curve: Curves.easeOutCubic)
-                : children,
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _CardTile extends StatelessWidget {
-  const _CardTile({
-    super.key,
-    required this.card,
-    required this.onOpen,
-    required this.onDelete,
-  });
-
-  final RegisteredCard card;
-  final VoidCallback onOpen;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final loc = MaterialLocalizations.of(context);
-    final last = card.lastTriggeredAt;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Dismissible(
-        key: ValueKey('dismiss-${card.id}'),
-        direction: DismissDirection.endToStart,
-        onDismissed: (_) => onDelete(),
-        background: Container(
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 28),
-          decoration: BoxDecoration(
-            color: scheme.errorContainer,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Icon(Icons.delete_outline, color: scheme.onErrorContainer),
-        ),
-        child: _Pressable(
-          onTap: onOpen,
-          child: Hero(
-            tag: 'card-${card.id}',
-            child: CardFace(
-              name: card.name,
-              style: card.style,
-              enabled: card.enabled,
-              subtitle: last == null
-                  ? 'Not tapped yet'
-                  : 'Last tapped ${loc.formatShortDate(last)}',
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Shrinks slightly while pressed, for a tactile feel.
-class _Pressable extends StatefulWidget {
-  const _Pressable({required this.child, required this.onTap});
-
-  final Widget child;
-  final VoidCallback onTap;
-
-  @override
-  State<_Pressable> createState() => _PressableState();
-}
-
-class _PressableState extends State<_Pressable> {
-  bool _down = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _down = true),
-        onTapUp: (_) => setState(() => _down = false),
-        onTapCancel: () => setState(() => _down = false),
-        onTap: widget.onTap,
-        child: AnimatedScale(
-          scale: _down ? 0.97 : 1,
-          duration: const Duration(milliseconds: 120),
-          child: widget.child,
-        ),
-      ),
+      ],
     );
   }
 }
@@ -303,42 +342,57 @@ class _NfcBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      color: scheme.errorContainer,
+    return Container(
       margin: const EdgeInsets.only(bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Icon(Icons.portable_wifi_off, color: scheme.onErrorContainer),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    status.hardware ? 'NFC is off' : 'This phone has no NFC',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  Text(
-                    status.hardware
-                        ? 'Card taps will not be detected until NFC is on.'
-                        : 'Cards cannot be registered or detected here.',
-                  ),
-                ],
-              ),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: TapsyColors.danger.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: TapsyColors.danger.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.portable_wifi_off, color: TapsyColors.danger),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  status.hardware ? 'NFC is off' : 'This phone has no NFC',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                Text(
+                  status.hardware
+                      ? 'Card taps won’t be detected until NFC is on.'
+                      : 'Cards cannot be registered or detected here.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
             ),
-            if (status.hardware)
-              TextButton(
-                onPressed: onOpenSettings,
-                child: const Text('Turn on'),
-              ),
-          ],
-        ),
+          ),
+          if (status.hardware)
+            TextButton(onPressed: onOpenSettings, child: const Text('Turn on')),
+        ],
       ),
     );
   }
+}
+
+class _ErrorPanel extends StatelessWidget {
+  const _ErrorPanel({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: TapsyColors.danger.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text('Could not load your cards: $message'),
+  );
 }
 
 class _EmptyState extends StatelessWidget {
@@ -349,78 +403,73 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    const fan = [1, 5, 0]; // Aurora, Sunset, Midnight
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
+      padding: const EdgeInsets.only(top: 32),
       child: Column(
         children: [
-          const TapsyMark(size: 150),
-          const SizedBox(height: 20),
-          Text(
-            'Tap. Pop. Done.',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w800,
+          SizedBox(
+            height: 230,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                for (var i = 0; i < fan.length; i++)
+                  Transform.translate(
+                    offset: Offset((i - 1) * 26.0, (i - 1) * -18.0),
+                    child: Transform.rotate(
+                      angle: (i - 1) * 0.12,
+                      child: SizedBox(
+                        width: 220,
+                        child: CardFace(
+                          name: i == 2 ? 'Your card' : '',
+                          style: fan[i],
+                          shine: i == 2,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 24),
+          Text('Tap. Pop. Done.', style: theme.textTheme.headlineMedium),
+          const SizedBox(height: 10),
           Text(
             'Register a card you already own and pick a message. Tap the card '
-            'on your phone and the message pops up, even when Tapsy is closed.',
+            'on your phone and it pops up, even when Tapsy is closed.',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+              color: TapsyColors.textMuted,
+              height: 1.5,
             ),
-          ),
-          const SizedBox(height: 20),
-          FilledButton.icon(
-            onPressed: onAdd,
-            icon: const Icon(Icons.contactless_outlined),
-            label: const Text('Add your first card'),
           ),
           const SizedBox(height: 28),
-          const _HowItWorks(),
+          PopButton(
+            label: 'ADD YOUR FIRST CARD',
+            icon: Icons.contactless_outlined,
+            onPressed: onAdd,
+          ),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.shield_outlined,
+                size: 16,
+                color: TapsyColors.textFaint,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  'Only the card ID is used. No payment data.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: TapsyColors.textFaint,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
-      ),
-    );
-  }
-}
-
-class _HowItWorks extends StatelessWidget {
-  const _HowItWorks();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    Widget row(IconData icon, String text) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: theme.colorScheme.primary),
-          const SizedBox(width: 12),
-          Expanded(child: Text(text, style: theme.textTheme.bodySmall)),
-        ],
-      ),
-    );
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            row(
-              Icons.lock_open_outlined,
-              'Works with the phone unlocked and NFC on, even if Tapsy is closed.',
-            ),
-            row(
-              Icons.shield_outlined,
-              'Only the card ID is used. Card numbers and payment data are never read.',
-            ),
-            row(
-              Icons.info_outline,
-              "An ID can be copied, so don't use Tapsy to protect anything sensitive.",
-            ),
-          ],
-        ),
       ),
     );
   }

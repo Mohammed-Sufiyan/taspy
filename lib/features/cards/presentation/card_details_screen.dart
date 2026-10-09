@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
+import '../../../app/theme.dart';
+import '../../../shared/format.dart';
 import '../../../shared/motion.dart';
+import '../../../shared/widgets/glow_background.dart';
+import '../../../shared/widgets/pop_button.dart';
+import '../../nfc/data/nfc_platform.dart';
 import '../../tap/tap_app.dart';
 import '../domain/registered_card.dart';
 import '../domain/tap_resolver.dart';
@@ -9,15 +14,18 @@ import 'card_face.dart';
 import 'card_form.dart';
 import 'cards_controller.dart';
 
+/// Pops with the deleted card (so the caller can offer Undo), or null.
 class CardDetailsScreen extends StatefulWidget {
   const CardDetailsScreen({
     super.key,
     required this.cards,
     required this.cardId,
+    required this.platform,
   });
 
   final CardsController cards;
   final String cardId;
+  final NfcPlatform platform;
 
   @override
   State<CardDetailsScreen> createState() => _CardDetailsScreenState();
@@ -86,7 +94,7 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        icon: const Icon(Icons.delete_outline),
+        icon: const Icon(Icons.delete_outline, color: TapsyColors.danger),
         title: Text('Delete "${card.name}"?'),
         content: const Text(
           'Tapping this card will no longer show your message. '
@@ -97,8 +105,9 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
-          FilledButton(
+          TextButton(
             onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: TapsyColors.danger),
             child: const Text('Delete'),
           ),
         ],
@@ -107,24 +116,14 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
     if (confirmed != true) return;
     await _run(() async {
       await widget.cards.delete(card.id);
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(card);
     });
   }
 
-  void _previewPopup(RegisteredCard card) {
+  void _preview(RegisteredCard card) {
     Haptics.celebrate();
-    showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Close preview',
-      barrierColor: Colors.black54,
-      pageBuilder: (context, _, _) => Center(
-        child: TapPopup(
-          outcome: RegisteredTap(card),
-          onClose: () => Navigator.of(context).pop(),
-        ),
-      ),
-    );
+    widget.platform.playTapSound();
+    showTapPopupPreview(context, RegisteredTap(card));
   }
 
   @override
@@ -140,15 +139,15 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
           );
         }
         final theme = Theme.of(context);
-        final loc = MaterialLocalizations.of(context);
-        String when(DateTime d) =>
-            '${loc.formatMediumDate(d)}, ${loc.formatTimeOfDay(TimeOfDay.fromDateTime(d))}';
+        final taps = widget.cards.tapsOf(card.id);
+        final weekAgo = DateTime.now().subtract(const Duration(days: 7));
+        final style = _editing ? _style : card.style;
 
         final sections = <Widget>[
           if (_editing) ...[
-            Text('Card colour', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
-            PalettePicker(
+            Text('Design', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 10),
+            SkinPicker(
               value: _style,
               enabled: !_busy,
               onChanged: (v) => setState(() => _style = v),
@@ -162,167 +161,210 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
                 enabled: !_busy,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
+            PopButton(label: 'SAVE CHANGES', busy: _busy, onPressed: _saveEdit),
+            const SizedBox(height: 12),
+            PopButton.dark(
+              label: 'CANCEL',
+              onPressed: _busy ? null : () => setState(() => _editing = false),
+            ),
+          ] else ...[
             Row(
-              mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                TextButton(
-                  onPressed: _busy
-                      ? null
-                      : () => setState(() => _editing = false),
-                  child: const Text('Cancel'),
+                _Stat(value: '${taps.length}', label: 'total taps'),
+                const SizedBox(width: 10),
+                _Stat(
+                  value: '${taps.where((t) => t.at.isAfter(weekAgo)).length}',
+                  label: 'this week',
                 ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _busy ? null : _saveEdit,
-                  child: const Text('Save'),
+                const SizedBox(width: 10),
+                _Stat(
+                  value: card.lastTriggeredAt == null
+                      ? '—'
+                      : timeAgo(card.lastTriggeredAt!),
+                  label: 'last tap',
                 ),
               ],
             ),
-          ] else ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.chat_bubble_outline,
-                          size: 18,
-                          color: theme.colorScheme.primary,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Message when tapped',
-                          style: theme.textTheme.labelLarge,
-                        ),
-                      ],
+            const SizedBox(height: 16),
+            _Panel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'MESSAGE ON TAP',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: TapsyColors.textFaint,
+                      letterSpacing: 1.2,
                     ),
-                    const SizedBox(height: 8),
-                    Text(card.message, style: theme.textTheme.bodyLarge),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () => _previewPopup(card),
-                      icon: const Icon(Icons.play_arrow_rounded),
-                      label: const Text('Preview popup'),
-                    ),
-                  ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    card.message,
+                    style: theme.textTheme.titleMedium?.copyWith(height: 1.4),
+                  ),
+                  const SizedBox(height: 16),
+                  PopButton.dark(
+                    label: 'PREVIEW TAP',
+                    icon: Icons.play_arrow_rounded,
+                    onPressed: () => _preview(card),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _Panel(
+              padding: EdgeInsets.zero,
+              child: SwitchListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 18),
+                title: const Text('Active'),
+                subtitle: Text(
+                  card.enabled
+                      ? 'Tapping shows your message'
+                      : 'Paused: tapping shows “paused”',
+                  style: theme.textTheme.bodySmall,
                 ),
+                value: card.enabled,
+                onChanged: _busy
+                    ? null
+                    : (v) {
+                        Haptics.detected();
+                        _run(() => widget.cards.setEnabled(card.id, v));
+                      },
+              ),
+            ),
+            const SizedBox(height: 12),
+            _Panel(
+              child: Column(
+                children: [
+                  _InfoRow(label: 'Card type', value: card.category.title),
+                  const Divider(height: 24),
+                  _InfoRow(label: 'Registered', value: timeAgo(card.createdAt)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            Center(
+              child: TextButton.icon(
+                onPressed: _busy ? null : () => _delete(card),
+                style: TextButton.styleFrom(
+                  foregroundColor: TapsyColors.danger,
+                ),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Delete card'),
               ),
             ),
           ],
-          const SizedBox(height: 12),
-          Card(
-            child: SwitchListTile(
-              secondary: Icon(
-                card.enabled
-                    ? Icons.notifications_active_outlined
-                    : Icons.notifications_off_outlined,
-              ),
-              title: const Text('Show message when tapped'),
-              subtitle: Text(
-                card.enabled ? 'On' : 'Off: taps show "turned off" instead',
-              ),
-              value: card.enabled,
-              onChanged: _busy
-                  ? null
-                  : (v) {
-                      Haptics.detected();
-                      _run(() => widget.cards.setEnabled(card.id, v));
-                    },
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.contactless_outlined),
-                  title: const Text('Card type'),
-                  subtitle: Text(card.category.title),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.event_outlined),
-                  title: const Text('Registered'),
-                  subtitle: Text(when(card.createdAt)),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.history),
-                  title: const Text('Last tapped'),
-                  subtitle: Text(
-                    card.lastTriggeredAt == null
-                        ? 'Not yet'
-                        : when(card.lastTriggeredAt!),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          OutlinedButton.icon(
-            onPressed: _busy ? null : () => _delete(card),
-            icon: Icon(Icons.delete_outline, color: theme.colorScheme.error),
-            label: Text(
-              'Delete card',
-              style: TextStyle(color: theme.colorScheme.error),
-            ),
-          ),
         ];
 
-        return Scaffold(
-          appBar: AppBar(
-            title: Text(card.name),
-            actions: [
-              if (!_editing)
-                IconButton(
-                  tooltip: 'Edit',
-                  icon: const Icon(Icons.edit_outlined),
-                  onPressed: _busy ? null : () => _startEditing(card),
-                ),
-            ],
-          ),
-          body: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: TiltOnDrag(
+        return GlowBackground(
+          color: CardSkin.glowOf(style),
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(
+              actions: [
+                if (!_editing)
+                  IconButton(
+                    tooltip: 'Edit',
+                    icon: const Icon(Icons.edit_outlined),
+                    onPressed: _busy ? null : () => _startEditing(card),
+                  ),
+                const SizedBox(width: 8),
+              ],
+            ),
+            body: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
+              children: [
+                TiltOnDrag(
                   child: Hero(
                     tag: 'card-${card.id}',
                     child: CardFace(
                       name: _editing ? _name.text.trim() : card.name,
-                      style: _editing ? _style : card.style,
+                      style: style,
                       enabled: card.enabled,
                     ),
                   ),
                 ),
-              ),
-              if (reduceMotion(context))
-                const SizedBox(height: 16)
-              else
-                Padding(
-                  padding: const EdgeInsets.only(top: 8, bottom: 16),
-                  child: Text(
-                    'Drag the card to tilt it',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              if (reduceMotion(context))
-                ...sections
-              else
-                ...sections
-                    .animate(interval: 50.ms, delay: 150.ms)
-                    .fadeIn(duration: 300.ms)
-                    .slideY(begin: 0.1, curve: Curves.easeOutCubic),
-            ],
+                const SizedBox(height: 24),
+                if (reduceMotion(context))
+                  ...sections
+                else
+                  ...sections
+                      .animate(interval: 40.ms, delay: 120.ms)
+                      .fadeIn(duration: 300.ms)
+                      .slideY(begin: 0.1, curve: Curves.easeOutCubic),
+              ],
+            ),
           ),
         );
       },
     );
   }
+}
+
+class _Panel extends StatelessWidget {
+  const _Panel({required this.child, this.padding = const EdgeInsets.all(18)});
+
+  final Widget child;
+  final EdgeInsets padding;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: padding,
+    decoration: BoxDecoration(
+      color: TapsyColors.surface,
+      borderRadius: BorderRadius.circular(22),
+      border: Border.all(color: TapsyColors.outline),
+    ),
+    child: child,
+  );
+}
+
+class _Stat extends StatelessWidget {
+  const _Stat({required this.value, required this.label});
+
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Expanded(
+      child: _Panel(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleLarge?.copyWith(
+                color: TapsyColors.lime,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            Text(label, style: theme.textTheme.bodySmall),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Text(label, style: Theme.of(context).textTheme.bodySmall),
+      const Spacer(),
+      Text(value, style: Theme.of(context).textTheme.titleSmall),
+    ],
+  );
 }

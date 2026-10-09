@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
+import '../../../app/theme.dart';
 import '../../../shared/motion.dart';
 import '../../../shared/widgets/effects.dart';
+import '../../../shared/widgets/glow_background.dart';
+import '../../../shared/widgets/pop_button.dart';
 import '../../nfc/data/nfc_platform.dart';
 import '../domain/registered_card.dart';
 import 'add_card_controller.dart';
@@ -57,6 +60,7 @@ class _AddCardScreenState extends State<AddCardScreen> {
     if (step == AddCardStep.ready) Haptics.success();
     if (_errorSteps.contains(step)) Haptics.error();
     _lastStep = step;
+    setState(() {}); // Background glow follows the step.
   }
 
   @override
@@ -89,39 +93,44 @@ class _AddCardScreenState extends State<AddCardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Add card')),
-      body: ListenableBuilder(
-        listenable: _c,
-        builder: (context, _) => Stack(
-          children: [
-            ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-              children: [
-                _StepDots(step: _c.step),
-                const SizedBox(height: 16),
-                AnimatedSwitcher(
-                  duration: reduceMotion(context)
-                      ? Duration.zero
-                      : const Duration(milliseconds: 350),
-                  switchInCurve: Curves.easeOutBack,
-                  transitionBuilder: (child, a) => FadeTransition(
-                    opacity: a,
-                    child: ScaleTransition(
-                      scale: Tween(begin: 0.94, end: 1.0).animate(a),
-                      child: child,
+    final ready = _c.step == AddCardStep.ready || _c.step == AddCardStep.saving;
+    return GlowBackground(
+      color: ready ? CardSkin.glowOf(_style) : TapsyColors.lime,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(title: const Text('Add card')),
+        body: ListenableBuilder(
+          listenable: _c,
+          builder: (context, _) => Stack(
+            children: [
+              ListView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                children: [
+                  _StepDots(step: _c.step),
+                  const SizedBox(height: 16),
+                  AnimatedSwitcher(
+                    duration: reduceMotion(context)
+                        ? Duration.zero
+                        : const Duration(milliseconds: 350),
+                    switchInCurve: Curves.easeOutBack,
+                    transitionBuilder: (child, a) => FadeTransition(
+                      opacity: a,
+                      child: ScaleTransition(
+                        scale: Tween(begin: 0.94, end: 1.0).animate(a),
+                        child: child,
+                      ),
+                    ),
+                    child: KeyedSubtree(
+                      key: ValueKey(_panelKey(_c.step)),
+                      child: _stepPanel(context),
                     ),
                   ),
-                  child: KeyedSubtree(
-                    key: ValueKey(_panelKey(_c.step)),
-                    child: _stepPanel(context),
-                  ),
-                ),
-                ..._form(context),
-              ],
-            ),
-            if (_saved case final card?) _SavedOverlay(card: card),
-          ],
+                  ..._form(context),
+                ],
+              ),
+              if (_saved case final card?) _SavedOverlay(card: card),
+            ],
+          ),
         ),
       ),
     );
@@ -188,10 +197,11 @@ class _AddCardScreenState extends State<AddCardScreen> {
       ),
     );
 
-    final tryAgain = FilledButton.tonalIcon(
+    final tryAgain = PopButton(
+      label: 'TRY AGAIN',
+      icon: Icons.refresh_rounded,
+      expand: false,
       onPressed: _c.restart,
-      icon: const Icon(Icons.refresh),
-      label: const Text('Try again'),
     );
 
     return switch (_c.step) {
@@ -222,7 +232,7 @@ class _AddCardScreenState extends State<AddCardScreen> {
         ),
       ),
       AddCardStep.waitingFirstTap => panel(
-        art: const ScanAnimation(),
+        art: const ScanAnimation(style: 5),
         title: 'Tap your card on the back',
         body:
             'Hold it flat near the middle of the phone. Nothing is written to '
@@ -311,9 +321,9 @@ class _AddCardScreenState extends State<AddCardScreen> {
         ),
       ),
       const SizedBox(height: 20),
-      Text('Card colour', style: theme.textTheme.titleSmall),
-      const SizedBox(height: 8),
-      PalettePicker(
+      Text('Design', style: theme.textTheme.titleSmall),
+      const SizedBox(height: 10),
+      SkinPicker(
         value: _style,
         enabled: !saving,
         onChanged: (v) => setState(() => _style = v),
@@ -329,16 +339,11 @@ class _AddCardScreenState extends State<AddCardScreen> {
           child: Text(error, style: TextStyle(color: theme.colorScheme.error)),
         ),
       const SizedBox(height: 16),
-      FilledButton.icon(
-        onPressed: saving ? null : _save,
-        icon: saving
-            ? const SizedBox.square(
-                dimension: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.check),
-        label: Text(saving ? 'Saving…' : 'Save card'),
-        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+      PopButton(
+        label: saving ? 'SAVING…' : 'SAVE CARD',
+        icon: Icons.check_rounded,
+        busy: saving,
+        onPressed: _save,
       ),
     ];
     if (reduceMotion(context)) return items;

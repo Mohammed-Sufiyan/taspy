@@ -45,6 +45,23 @@ class FakeNfcPlatform implements NfcPlatform {
   @override
   Future<void> openApp() async => openAppCalls++;
 
+  int soundCalls = 0;
+  bool sound = true;
+  bool onboarded = true;
+
+  @override
+  Future<void> playTapSound() async => soundCalls++;
+
+  @override
+  Future<AppSettings> getSettings() async =>
+      AppSettings(sound: sound, onboarded: onboarded);
+
+  @override
+  Future<void> setSetting(String key, bool value) async {
+    if (key == 'sound') sound = value;
+    if (key == 'onboarded') onboarded = value;
+  }
+
   @override
   Stream<NfcEvent> get events => _events.stream;
 

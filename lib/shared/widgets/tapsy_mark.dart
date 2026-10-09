@@ -19,7 +19,7 @@ class TapsyMark extends StatefulWidget {
   /// Ripples pulse outward and the card gently bobs.
   final bool animate;
 
-  /// Draw the teal rounded-square background like the app icon.
+  /// Draw the dark rounded-square background like the app icon.
   final bool tile;
 
   @override
@@ -80,22 +80,26 @@ class TapsyMarkPainter extends CustomPainter {
   final double t;
   final bool tile;
 
-  static const teal = Color(0xFF0E7C7B);
-  static const amber = Color(0xFFF5B841);
+  static const lime = Color(0xFFC6FF3D);
+  static const tileTop = Color(0xFF18181B);
+  static const tileBottom = Color(0xFF3F3F46);
 
   @override
   void paint(Canvas canvas, Size size) {
     final k = size.width / 140;
     canvas.scale(k);
-    final ink = tile ? Colors.white : teal;
+    const ink = lime;
 
     if (tile) {
+      const rect = Rect.fromLTWH(0, 0, 140, 140);
       canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          const Rect.fromLTWH(0, 0, 140, 140),
-          const Radius.circular(34),
-        ),
-        Paint()..color = teal,
+        RRect.fromRectAndRadius(rect, const Radius.circular(34)),
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [tileTop, tileBottom],
+          ).createShader(rect),
       );
     }
 
@@ -123,15 +127,15 @@ class TapsyMarkPainter extends CustomPainter {
     canvas.translate(-64, -84);
     canvas.drawRRect(
       RRect.fromLTRBR(26, 60, 102, 108, const Radius.circular(8)),
-      Paint()..color = tile ? Colors.white : teal,
+      Paint()..color = Colors.white,
     );
     canvas.drawRRect(
       RRect.fromLTRBR(37, 72, 53, 84, const Radius.circular(2.5)),
-      Paint()..color = amber,
+      Paint()..color = lime,
     );
     canvas.drawRRect(
       RRect.fromLTRBR(37, 93, 77, 98, const Radius.circular(2.5)),
-      Paint()..color = (tile ? teal : Colors.white).withValues(alpha: 0.35),
+      Paint()..color = tileTop.withValues(alpha: 0.25),
     );
     canvas.restore();
 

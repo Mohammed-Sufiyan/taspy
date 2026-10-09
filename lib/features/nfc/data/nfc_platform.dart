@@ -29,6 +29,14 @@ class NfcScanException implements Exception {
   String toString() => 'NfcScanException($code)';
 }
 
+/// Small user preferences kept natively (readable from the tap popup too).
+class AppSettings {
+  const AppSettings({required this.sound, required this.onboarded});
+
+  final bool sound;
+  final bool onboarded;
+}
+
 /// Boundary to the native NFC layer (see `NfcBridge.kt`).
 abstract class NfcPlatform {
   Future<NfcStatus> getStatus();
@@ -41,6 +49,12 @@ abstract class NfcPlatform {
 
   /// Tap popup only: opens the main app and closes the popup.
   Future<void> openApp();
+
+  /// Plays the tap chime (native side skips it if sound is off or the phone is silent).
+  Future<void> playTapSound();
+
+  Future<AppSettings> getSettings();
+  Future<void> setSetting(String key, bool value);
 
   Stream<NfcEvent> get events;
 }
@@ -75,6 +89,22 @@ class MethodChannelNfcPlatform implements NfcPlatform {
 
   @override
   Future<void> openApp() => _methods.invokeMethod<void>('openApp');
+
+  @override
+  Future<void> playTapSound() => _methods.invokeMethod<void>('playTapSound');
+
+  @override
+  Future<AppSettings> getSettings() async {
+    final map = await _methods.invokeMapMethod<Object?, Object?>('getSettings');
+    return AppSettings(
+      sound: map?['sound'] != false,
+      onboarded: map?['onboarded'] == true,
+    );
+  }
+
+  @override
+  Future<void> setSetting(String key, bool value) =>
+      _methods.invokeMethod<void>('setSetting', {'key': key, 'value': value});
 
   @override
   late final Stream<NfcEvent> events = _events.receiveBroadcastStream().map((

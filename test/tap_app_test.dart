@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nfcpin/features/cards/domain/registered_card.dart';
 import 'package:nfcpin/features/nfc/domain/nfc_models.dart';
@@ -11,6 +12,9 @@ void main() {
   late MemoryCardRepository repo;
 
   Future<void> pumpPopup(WidgetTester tester, {bool enabled = true}) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
     platform = FakeNfcPlatform();
     repo = MemoryCardRepository()
       ..stored = [
@@ -30,7 +34,8 @@ void main() {
       fingerprint: fingerprint,
     );
     await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1)); // Sheet builds, animation starts.
+    await tester.pump(const Duration(seconds: 1)); // Slide-up finishes.
   }
 
   testWidgets('registered card shows its message and records the tap', (
@@ -42,8 +47,10 @@ void main() {
     expect(find.text('SBI Card'), findsWidgets); // Title and card face.
     expect(find.text('Your registered card was detected.'), findsOneWidget);
     expect(repo.stored.single.lastTriggeredAt, isNotNull);
+    expect(repo.taps.single.cardId, repo.stored.single.id);
+    expect(platform.soundCalls, 1);
 
-    await tester.tap(find.text('OK'));
+    await tester.tap(find.text('DONE'));
     expect(platform.closeCalls, 1);
   });
 
@@ -54,8 +61,10 @@ void main() {
     expect(find.text('New card?'), findsOneWidget);
     expect(find.text('Your registered card was detected.'), findsNothing);
     expect(repo.stored.single.lastTriggeredAt, isNull);
+    expect(repo.taps, isEmpty);
+    expect(platform.soundCalls, 0);
 
-    await tester.tap(find.text('Open Tapsy'));
+    await tester.tap(find.text('ADD IT IN TAPSY'));
     expect(platform.openAppCalls, 1);
   });
 
@@ -65,7 +74,7 @@ void main() {
     await pumpPopup(tester, enabled: false);
     await tapCard(tester, 'aaaa-bbbb-cccc');
 
-    expect(find.textContaining('turned off'), findsOneWidget);
+    expect(find.textContaining('paused'), findsOneWidget);
     expect(find.text('Your registered card was detected.'), findsNothing);
   });
 

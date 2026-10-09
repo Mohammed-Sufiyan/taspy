@@ -133,3 +133,22 @@ abstract final class CardValidation {
     return null;
   }
 }
+
+/// One recognised tap of a registered card. Stored locally for the "Recent
+/// taps" list and stats; contains only the card's internal id and a time.
+class TapEvent {
+  const TapEvent({required this.cardId, required this.at});
+
+  factory TapEvent.fromJson(Map<String, Object?> json) => TapEvent(
+    cardId: json['cardId']! as String,
+    at: DateTime.parse(json['at']! as String),
+  );
+
+  final String cardId;
+  final DateTime at;
+
+  Map<String, Object?> toJson() => {
+    'cardId': cardId,
+    'at': at.toIso8601String(),
+  };
+}

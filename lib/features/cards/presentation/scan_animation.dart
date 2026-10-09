@@ -43,7 +43,7 @@ class _ScanAnimationState extends State<ScanAnimation>
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final palette = CardPalette.of(widget.style);
+    final skin = CardSkin.of(widget.style);
     return SizedBox(
       height: widget.height,
       child: RepaintBoundary(
@@ -56,8 +56,7 @@ class _ScanAnimationState extends State<ScanAnimation>
               phone: scheme.onSurface,
               screen: scheme.surfaceContainerHighest,
               ripple: scheme.primary,
-              cardStart: palette.start,
-              cardEnd: palette.end,
+              skin: skin,
             ),
           ),
         ),
@@ -72,16 +71,14 @@ class _ScanPainter extends CustomPainter {
     required this.phone,
     required this.screen,
     required this.ripple,
-    required this.cardStart,
-    required this.cardEnd,
+    required this.skin,
   });
 
   final double t;
   final Color phone;
   final Color screen;
   final Color ripple;
-  final Color cardStart;
-  final Color cardEnd;
+  final CardSkin skin;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -165,13 +162,13 @@ class _ScanPainter extends CustomPainter {
       ),
       Paint()..color = Colors.black.withValues(alpha: 0.15),
     );
-    canvas.drawRRect(
+    canvas.save();
+    canvas.clipRRect(
       RRect.fromRectAndRadius(cardRect, Radius.circular(h * 0.03)),
-      Paint()
-        ..shader = LinearGradient(
-          colors: [cardStart, cardEnd],
-        ).createShader(cardRect),
     );
+    canvas.translate(cardRect.left, cardRect.top);
+    skin.paint(canvas, cardRect.size);
+    canvas.restore();
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(
@@ -182,12 +179,12 @@ class _ScanPainter extends CustomPainter {
         ),
         Radius.circular(h * 0.008),
       ),
-      Paint()..color = const Color(0xFFF5B841),
+      Paint()..color = skin.chip ?? const Color(0xFFF5D27A),
     );
     canvas.restore();
   }
 
   @override
   bool shouldRepaint(_ScanPainter old) =>
-      old.t != t || old.ripple != ripple || old.cardStart != cardStart;
+      old.t != t || old.ripple != ripple || old.skin != skin;
 }

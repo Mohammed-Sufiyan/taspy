@@ -23,10 +23,23 @@ class CardsController extends ChangeNotifier {
   final CardRepository _repository;
 
   List<RegisteredCard> _cards = const [];
+  List<TapEvent> _taps = const [];
+
+  /// Keep history bounded; it only feeds "Recent taps" and simple stats.
+  static const maxTaps = 300;
   bool loading = true;
   String? loadError;
 
   List<RegisteredCard> get cards => _cards;
+
+  /// Taps of cards that still exist, newest first.
+  List<TapEvent> get taps {
+    final ids = {for (final c in _cards) c.id};
+    return _taps.where((t) => ids.contains(t.cardId)).toList();
+  }
+
+  List<TapEvent> tapsOf(String cardId) =>
+      _taps.where((t) => t.cardId == cardId).toList();
 
   RegisteredCard? byId(String id) {
     for (final c in _cards) {
@@ -47,6 +60,7 @@ class CardsController extends ChangeNotifier {
     notifyListeners();
     try {
       _cards = await _repository.loadAll();
+      _taps = await _repository.loadTaps();
       loadError = null;
     } on CardStoreException catch (e) {
       loadError = e.message;
@@ -110,8 +124,16 @@ class CardsController extends ChangeNotifier {
   Future<void> setEnabled(String id, bool enabled) =>
       _update(id, (c) => c.copyWith(enabled: enabled));
 
-  Future<void> markTriggered(String id, {DateTime? at}) =>
-      _update(id, (c) => c.copyWith(lastTriggeredAt: at ?? DateTime.now()));
+  /// Records a recognised tap: updates the card and appends to the history.
+  Future<void> markTriggered(String id, {DateTime? at}) async {
+    final when = at ?? DateTime.now();
+    await _update(id, (c) => c.copyWith(lastTriggeredAt: when));
+    final history = await _repository.loadTaps();
+    final next = [TapEvent(cardId: id, at: when), ...history];
+    await _repository.saveTaps(next.take(maxTaps).toList());
+    _taps = next.take(maxTaps).toList();
+    notifyListeners();
+  }
 
   Future<void> delete(String id) async {
     final current = await _repository.loadAll();

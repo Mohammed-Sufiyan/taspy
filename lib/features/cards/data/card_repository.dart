@@ -17,6 +17,10 @@ class CardStoreException implements Exception {
 abstract class CardRepository {
   Future<List<RegisteredCard>> loadAll();
   Future<void> saveAll(List<RegisteredCard> cards);
+
+  /// Tap history, newest first.
+  Future<List<TapEvent>> loadTaps();
+  Future<void> saveTaps(List<TapEvent> taps);
 }
 
 /// Stores cards as versioned JSON in the app's private files directory.
@@ -31,10 +35,12 @@ class FileCardRepository implements CardRepository {
 
   static const schemaVersion = 1;
   static const fileName = 'cards.json';
+  static const tapsFileName = 'taps.json';
 
   final Future<Directory> Function() _directory;
 
-  Future<File> _file() async => File('${(await _directory()).path}/$fileName');
+  Future<File> _file([String name = fileName]) async =>
+      File('${(await _directory()).path}/$name');
 
   @override
   Future<List<RegisteredCard>> loadAll() async {
@@ -61,15 +67,41 @@ class FileCardRepository implements CardRepository {
   }
 
   @override
-  Future<void> saveAll(List<RegisteredCard> cards) async {
-    final file = await _file();
+  Future<void> saveAll(List<RegisteredCard> cards) => _write(fileName, {
+    'version': schemaVersion,
+    'cards': [for (final c in cards) c.toJson()],
+  });
+
+  @override
+  Future<List<TapEvent>> loadTaps() async {
+    final file = await _file(tapsFileName);
+    if (!await file.exists()) return [];
+    try {
+      final json =
+          jsonDecode(await file.readAsString()) as Map<String, Object?>;
+      return (json['taps']! as List<Object?>)
+          .cast<Map<String, Object?>>()
+          .map(TapEvent.fromJson)
+          .toList();
+    } catch (_) {
+      // History is a nice-to-have: a damaged file just starts over.
+      return [];
+    }
+  }
+
+  @override
+  Future<void> saveTaps(List<TapEvent> taps) => _write(tapsFileName, {
+    'version': 1,
+    'taps': [for (final t in taps) t.toJson()],
+  });
+
+  /// Writes to a temp file, then renames over the original (atomic on the
+  /// same filesystem), so an interrupted write keeps the previous version.
+  Future<void> _write(String name, Map<String, Object?> json) async {
+    final file = await _file(name);
     await file.parent.create(recursive: true);
     final temp = File('${file.path}.tmp');
-    final body = jsonEncode({
-      'version': schemaVersion,
-      'cards': [for (final c in cards) c.toJson()],
-    });
-    await temp.writeAsString(body, flush: true);
+    await temp.writeAsString(jsonEncode(json), flush: true);
     await temp.rename(file.path);
   }
 }

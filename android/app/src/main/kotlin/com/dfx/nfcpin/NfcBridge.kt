@@ -5,6 +5,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.SoundPool
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.NfcA
@@ -87,6 +90,8 @@ class NfcBridge(private val activity: Activity, messenger: BinaryMessenger) :
     }
 
     fun dispose() {
+        sounds?.release()
+        sounds = null
         scanning = false
         methods.setMethodCallHandler(null)
         events.setStreamHandler(null)
@@ -140,6 +145,26 @@ class NfcBridge(private val activity: Activity, messenger: BinaryMessenger) :
                 } catch (e: Exception) {
                     activity.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
                 }
+                result.success(null)
+            }
+            "getSettings" -> result.success(
+                mapOf(
+                    "sound" to settings().getBoolean("sound", true),
+                    "onboarded" to settings().getBoolean("onboarded", false),
+                ),
+            )
+            "setSetting" -> {
+                val key = call.argument<String>("key")
+                val value = call.argument<Boolean>("value")
+                if (key !in SETTING_KEYS || value == null) {
+                    result.error("bad_args", "Unknown setting", null)
+                } else {
+                    settings().edit().putBoolean(key, value).apply()
+                    result.success(null)
+                }
+            }
+            "playTapSound" -> {
+                playTapSound()
                 result.success(null)
             }
             "close" -> {
@@ -235,6 +260,41 @@ class NfcBridge(private val activity: Activity, messenger: BinaryMessenger) :
         return fresh
     }
 
+    private fun settings() =
+        activity.getSharedPreferences("tapsy_settings", Context.MODE_PRIVATE)
+
+    private var sounds: SoundPool? = null
+    private var chimeId = 0
+    private var chimeReady = false
+
+    /** Plays the tap chime unless the user turned it off or the phone is on silent/vibrate. */
+    private fun playTapSound() {
+        if (!settings().getBoolean("sound", true)) return
+        val audio = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        if (audio.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
+        val pool = sounds ?: SoundPool.Builder()
+            .setMaxStreams(1)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build(),
+            )
+            .build()
+            .also { sounds = it }
+        if (chimeReady) {
+            pool.play(chimeId, 0.8f, 0.8f, 1, 0, 1f)
+        } else {
+            pool.setOnLoadCompleteListener { p, id, status ->
+                if (status == 0) {
+                    chimeReady = true
+                    p.play(id, 0.8f, 0.8f, 1, 0, 1f)
+                }
+            }
+            chimeId = pool.load(activity, R.raw.tap_chime, 1)
+        }
+    }
+
     private fun emit(event: Map<String, Any?>) {
         val s = sink
         if (s == null) pending.add(event) else s.success(event)
@@ -252,6 +312,7 @@ class NfcBridge(private val activity: Activity, messenger: BinaryMessenger) :
 
     companion object {
         private const val EXTRA_HANDLED = "com.dfx.nfcpin.HANDLED"
+        private val SETTING_KEYS = setOf("sound", "onboarded")
         private val NFC_ACTIONS = setOf(
             NfcAdapter.ACTION_NDEF_DISCOVERED,
             NfcAdapter.ACTION_TECH_DISCOVERED,
