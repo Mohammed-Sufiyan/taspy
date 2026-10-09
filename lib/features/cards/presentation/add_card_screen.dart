@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
+import '../../../shared/motion.dart';
+import '../../../shared/widgets/effects.dart';
 import '../../nfc/data/nfc_platform.dart';
 import '../domain/registered_card.dart';
 import 'add_card_controller.dart';
+import 'card_face.dart';
 import 'card_form.dart';
 import 'cards_controller.dart';
+import 'scan_animation.dart';
 
 /// Pops with the new card's name once it is saved.
 class AddCardScreen extends StatefulWidget {
@@ -25,15 +30,38 @@ class _AddCardScreenState extends State<AddCardScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _message = TextEditingController(text: CardValidation.defaultMessage);
+  int _style = 0;
+  AddCardStep _lastStep = AddCardStep.checkingNfc;
+  RegisteredCard? _saved;
+
+  static const _errorSteps = {
+    AddCardStep.timedOut,
+    AddCardStep.noId,
+    AddCardStep.idChanged,
+    AddCardStep.alreadyRegistered,
+    AddCardStep.nfcUnavailable,
+  };
 
   @override
   void initState() {
     super.initState();
+    _c.addListener(_onStep);
+    _name.addListener(() => setState(() {})); // Live card preview.
     _c.start();
+  }
+
+  void _onStep() {
+    final step = _c.step;
+    if (step == _lastStep) return;
+    if (step == AddCardStep.waitingConfirmTap) Haptics.detected();
+    if (step == AddCardStep.ready) Haptics.success();
+    if (_errorSteps.contains(step)) Haptics.error();
+    _lastStep = step;
   }
 
   @override
   void dispose() {
+    _c.removeListener(_onStep);
     _c.dispose(); // Also stops any running scan.
     _name.dispose();
     _message.dispose();
@@ -42,8 +70,21 @@ class _AddCardScreenState extends State<AddCardScreen> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    final card = await _c.save(name: _name.text, message: _message.text);
-    if (card != null && mounted) Navigator.of(context).pop(card.name);
+    FocusScope.of(context).unfocus();
+    final card = await _c.save(
+      name: _name.text,
+      message: _message.text,
+      style: _style,
+    );
+    if (card == null || !mounted) return;
+    Haptics.celebrate();
+    setState(() => _saved = card);
+    await Future<void>.delayed(
+      reduceMotion(context)
+          ? const Duration(milliseconds: 600)
+          : const Duration(milliseconds: 1600),
+    );
+    if (mounted) Navigator.of(context).pop(card.name);
   }
 
   @override
@@ -52,50 +93,100 @@ class _AddCardScreenState extends State<AddCardScreen> {
       appBar: AppBar(title: const Text('Add card')),
       body: ListenableBuilder(
         listenable: _c,
-        builder: (context, _) => ListView(
-          padding: const EdgeInsets.all(16),
-          children: [_stepCard(context), ..._form(context)],
+        builder: (context, _) => Stack(
+          children: [
+            ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+              children: [
+                _StepDots(step: _c.step),
+                const SizedBox(height: 16),
+                AnimatedSwitcher(
+                  duration: reduceMotion(context)
+                      ? Duration.zero
+                      : const Duration(milliseconds: 350),
+                  switchInCurve: Curves.easeOutBack,
+                  transitionBuilder: (child, a) => FadeTransition(
+                    opacity: a,
+                    child: ScaleTransition(
+                      scale: Tween(begin: 0.94, end: 1.0).animate(a),
+                      child: child,
+                    ),
+                  ),
+                  child: KeyedSubtree(
+                    key: ValueKey(_panelKey(_c.step)),
+                    child: _stepPanel(context),
+                  ),
+                ),
+                ..._form(context),
+              ],
+            ),
+            if (_saved case final card?) _SavedOverlay(card: card),
+          ],
         ),
       ),
     );
   }
 
-  Widget _stepCard(BuildContext context) {
+  /// Steps that look the same share a key so the panel doesn't re-animate.
+  String _panelKey(AddCardStep s) => switch (s) {
+    AddCardStep.ready || AddCardStep.saving => 'ready',
+    _ => s.name,
+  };
+
+  Widget _stepPanel(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
     Widget panel({
-      required IconData icon,
+      required Widget art,
       required String title,
       required String body,
-      Color? color,
-      bool progress = false,
       Widget? action,
+      bool shake = false,
     }) {
-      return Card(
+      Widget card = Card(
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
           child: Column(
             children: [
-              Icon(icon, size: 56, color: color ?? scheme.primary),
-              const SizedBox(height: 12),
+              art,
+              const SizedBox(height: 16),
               Text(
                 title,
                 style: theme.textTheme.titleLarge,
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 8),
-              Text(body, textAlign: TextAlign.center),
-              if (progress) ...[
-                const SizedBox(height: 16),
-                const LinearProgressIndicator(),
+              if (body.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  body,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
               ],
               if (action != null) ...[const SizedBox(height: 16), action],
             ],
           ),
         ),
       );
+      if (shake && !reduceMotion(context)) {
+        card = card.animate().shakeX(hz: 5, amount: 6, duration: 450.ms);
+      }
+      return card;
     }
+
+    Widget errorIcon(IconData icon) => PulseRings(
+      color: scheme.error,
+      size: 120,
+      active: false,
+      child: CircleAvatar(
+        radius: 40,
+        backgroundColor: scheme.errorContainer,
+        child: Icon(icon, size: 40, color: scheme.onErrorContainer),
+      ),
+    );
 
     final tryAgain = FilledButton.tonalIcon(
       onPressed: _c.restart,
@@ -105,16 +196,18 @@ class _AddCardScreenState extends State<AddCardScreen> {
 
     return switch (_c.step) {
       AddCardStep.checkingNfc => panel(
-        icon: Icons.nfc,
+        art: const SizedBox(
+          height: 120,
+          child: Center(child: CircularProgressIndicator()),
+        ),
         title: 'Checking NFC…',
         body: '',
-        progress: true,
       ),
       AddCardStep.nfcUnavailable => panel(
-        icon: Icons.portable_wifi_off,
-        color: scheme.error,
+        art: errorIcon(Icons.portable_wifi_off),
         title: 'NFC not ready',
         body: _c.nfcProblem ?? '',
+        shake: true,
         action: Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -129,62 +222,76 @@ class _AddCardScreenState extends State<AddCardScreen> {
         ),
       ),
       AddCardStep.waitingFirstTap => panel(
-        icon: Icons.contactless_outlined,
-        title: 'Tap your card',
+        art: const ScanAnimation(),
+        title: 'Tap your card on the back',
         body:
-            'Hold the card flat against the back of the phone until it is '
-            'detected. Nothing is written to the card and no payment data is read.',
-        progress: true,
+            'Hold it flat near the middle of the phone. Nothing is written to '
+            'the card and no payment data is read.',
       ),
       AddCardStep.waitingConfirmTap => panel(
-        icon: Icons.contactless,
-        title: 'Card detected. Tap it again',
+        art: PulseRings(
+          color: scheme.primary,
+          size: 200,
+          child:
+              CircleAvatar(
+                radius: 44,
+                backgroundColor: scheme.primaryContainer,
+                child: Icon(
+                  Icons.contactless,
+                  size: 48,
+                  color: scheme.onPrimaryContainer,
+                ),
+              ).animate().scale(
+                begin: const Offset(0.6, 0.6),
+                curve: Curves.elasticOut,
+                duration: 700.ms,
+              ),
+        ),
+        title: 'Got it! Tap once more',
         body:
-            'Move the card away, then tap it once more. This checks the card '
-            'gives the same ID every time, so the app can recognise it later.',
-        progress: true,
+            'Move the card away, then tap again. This checks it gives the '
+            'same ID every time, so Tapsy can recognise it later.',
       ),
       AddCardStep.timedOut => panel(
-        icon: Icons.timer_off_outlined,
-        color: scheme.error,
+        art: errorIcon(Icons.timer_off_outlined),
         title: 'No card detected',
         body:
             'Nothing was detected for ${_c.scanTimeout.inSeconds} seconds. '
             'Try a different spot on the back of the phone.',
+        shake: true,
         action: tryAgain,
       ),
       AddCardStep.noId => panel(
-        icon: Icons.block,
-        color: scheme.error,
+        art: errorIcon(Icons.block),
         title: "This card can't be registered",
-        body:
-            'It does not report an ID, so the app has no way to recognise it.',
+        body: 'It does not report an ID, so Tapsy has no way to recognise it.',
+        shake: true,
         action: tryAgain,
       ),
       AddCardStep.idChanged => panel(
-        icon: Icons.shuffle,
-        color: scheme.error,
+        art: errorIcon(Icons.shuffle),
         title: 'The ID changed between taps',
         body:
             'Either a different card was used for the second tap, or this card '
-            'changes its ID on every tap. Cards like that cannot be recognised. '
-            'Try again with the same card.',
+            'changes its ID on every tap. Cards like that cannot be recognised.',
+        shake: true,
         action: tryAgain,
       ),
       AddCardStep.alreadyRegistered => panel(
-        icon: Icons.info_outline,
+        art: errorIcon(Icons.bookmark_added_outlined),
         title: 'Already registered',
         body:
             'This card is already registered as "${_c.existing?.name}". '
             'Edit it from the home screen.',
+        shake: true,
         action: tryAgain,
       ),
       AddCardStep.ready || AddCardStep.saving => panel(
-        icon: Icons.verified,
+        art: AnimatedCheck(color: scheme.primary, size: 88),
         title: 'Card verified',
         body:
             '${_c.firstTap?.category.title ?? 'Card'} · same ID on both taps. '
-            'Name it and choose the message to show.',
+            'Now make it yours.',
       ),
     };
   }
@@ -194,8 +301,24 @@ class _AddCardScreenState extends State<AddCardScreen> {
       return const [];
     }
     final saving = _c.step == AddCardStep.saving;
-    return [
-      const SizedBox(height: 16),
+    final theme = Theme.of(context);
+    final items = <Widget>[
+      const SizedBox(height: 20),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: TiltOnDrag(
+          child: CardFace(name: _name.text.trim(), style: _style),
+        ),
+      ),
+      const SizedBox(height: 20),
+      Text('Card colour', style: theme.textTheme.titleSmall),
+      const SizedBox(height: 8),
+      PalettePicker(
+        value: _style,
+        enabled: !saving,
+        onChanged: (v) => setState(() => _style = v),
+      ),
+      const SizedBox(height: 20),
       Form(
         key: _formKey,
         child: CardFormFields(name: _name, message: _message, enabled: !saving),
@@ -203,17 +326,149 @@ class _AddCardScreenState extends State<AddCardScreen> {
       if (_c.saveError case final error?)
         Padding(
           padding: const EdgeInsets.only(top: 8),
-          child: Text(
-            error,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
+          child: Text(error, style: TextStyle(color: theme.colorScheme.error)),
         ),
       const SizedBox(height: 16),
-      FilledButton(
+      FilledButton.icon(
         onPressed: saving ? null : _save,
+        icon: saving
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.check),
+        label: Text(saving ? 'Saving…' : 'Save card'),
         style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
-        child: Text(saving ? 'Saving…' : 'Save card'),
       ),
     ];
+    if (reduceMotion(context)) return items;
+    return items
+        .animate(interval: 60.ms)
+        .fadeIn(duration: 300.ms)
+        .slideY(begin: 0.15, curve: Curves.easeOutCubic);
   }
+}
+
+/// "Step 1 → Step 2 → Done" indicator.
+class _StepDots extends StatelessWidget {
+  const _StepDots({required this.step});
+
+  final AddCardStep step;
+
+  int get _index => switch (step) {
+    AddCardStep.waitingConfirmTap => 1,
+    AddCardStep.ready || AddCardStep.saving => 2,
+    _ => 0,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    const labels = ['Tap', 'Tap again', 'Name it'];
+    return Row(
+      children: [
+        for (var i = 0; i < 3; i++) ...[
+          if (i > 0)
+            Expanded(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 400),
+                height: 3,
+                margin: const EdgeInsets.symmetric(horizontal: 6),
+                decoration: BoxDecoration(
+                  color: i <= _index ? scheme.primary : scheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOutBack,
+                width: i == _index ? 30 : 24,
+                height: i == _index ? 30 : 24,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: i <= _index ? scheme.primary : scheme.surfaceContainer,
+                  border: Border.all(
+                    color: i <= _index ? scheme.primary : scheme.outlineVariant,
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: i < _index
+                    ? Icon(Icons.check, size: 16, color: scheme.onPrimary)
+                    : Text(
+                        '${i + 1}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: i <= _index
+                              ? scheme.onPrimary
+                              : scheme.onSurfaceVariant,
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 4),
+              Text(labels[i], style: Theme.of(context).textTheme.labelSmall),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Full-screen celebration after saving.
+class _SavedOverlay extends StatelessWidget {
+  const _SavedOverlay({required this.card});
+
+  final RegisteredCard card;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Positioned.fill(
+      child: _fade(
+        ColoredBox(
+          color: theme.colorScheme.surface.withValues(alpha: 0.96),
+          child: Stack(
+            children: [
+              const Positioned.fill(child: ConfettiBurst()),
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CardFace(name: card.name, style: card.style)
+                          .animate()
+                          .scale(
+                            begin: const Offset(0.7, 0.7),
+                            curve: Curves.elasticOut,
+                            duration: 900.ms,
+                          )
+                          .shimmer(delay: 400.ms, duration: 900.ms),
+                      const SizedBox(height: 24),
+                      Text(
+                        'All set!',
+                        style: theme.textTheme.headlineMedium,
+                      ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.4),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Tap "${card.name}" on your phone anytime.',
+                        textAlign: TextAlign.center,
+                      ).animate().fadeIn(delay: 350.ms),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _fade(Widget child) => child.animate().fadeIn(duration: 200.ms);
 }

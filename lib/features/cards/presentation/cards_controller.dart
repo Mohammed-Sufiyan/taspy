@@ -60,6 +60,7 @@ class CardsController extends ChangeNotifier {
     required String message,
     required String fingerprint,
     required CardCategory category,
+    int style = 0,
   }) async {
     _validate(name: name, message: message);
     // Re-read from disk: the tap popup may have changed the file meanwhile.
@@ -76,6 +77,7 @@ class CardsController extends ChangeNotifier {
       fingerprint: fingerprint,
       category: category,
       message: message,
+      style: style,
     );
     await _commit([...current, card]);
     return card;
@@ -85,9 +87,24 @@ class CardsController extends ChangeNotifier {
     String id, {
     required String name,
     required String message,
+    int? style,
   }) {
     _validate(name: name, message: message);
-    return _update(id, (c) => c.copyWith(name: name, message: message));
+    return _update(
+      id,
+      (c) => c.copyWith(name: name, message: message, style: style),
+    );
+  }
+
+  /// Puts back a card removed by [delete] (for "Undo").
+  Future<void> restore(RegisteredCard card) async {
+    final current = await _repository.loadAll();
+    if (current.any(
+      (c) => c.id == card.id || c.fingerprint == card.fingerprint,
+    )) {
+      return;
+    }
+    await _commit([...current, card]);
   }
 
   Future<void> setEnabled(String id, bool enabled) =>

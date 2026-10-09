@@ -29,7 +29,8 @@ void main() {
       source: TagSource.launchedFromClosed,
       fingerprint: fingerprint,
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
   }
 
   testWidgets('registered card shows its message and records the tap', (
@@ -38,7 +39,7 @@ void main() {
     await pumpPopup(tester);
     await tapCard(tester, 'aaaa-bbbb-cccc');
 
-    expect(find.text('SBI Card'), findsOneWidget);
+    expect(find.text('SBI Card'), findsWidgets); // Title and card face.
     expect(find.text('Your registered card was detected.'), findsOneWidget);
     expect(repo.stored.single.lastTriggeredAt, isNotNull);
 
@@ -50,11 +51,11 @@ void main() {
     await pumpPopup(tester);
     await tapCard(tester, 'ffff-0000-1111');
 
-    expect(find.text('Unregistered card'), findsOneWidget);
+    expect(find.text('New card?'), findsOneWidget);
     expect(find.text('Your registered card was detected.'), findsNothing);
     expect(repo.stored.single.lastTriggeredAt, isNull);
 
-    await tester.tap(find.text('Open app'));
+    await tester.tap(find.text('Open Tapsy'));
     expect(platform.openAppCalls, 1);
   });
 
@@ -66,5 +67,15 @@ void main() {
 
     expect(find.textContaining('turned off'), findsOneWidget);
     expect(find.text('Your registered card was detected.'), findsNothing);
+  });
+
+  testWidgets('popup works with animations turned off', (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    await pumpPopup(tester);
+    await tapCard(tester, 'aaaa-bbbb-cccc');
+    expect(find.text('Your registered card was detected.'), findsOneWidget);
+    await tester.pumpAndSettle(); // Nothing loops when motion is reduced.
   });
 }

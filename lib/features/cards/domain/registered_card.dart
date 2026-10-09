@@ -18,6 +18,7 @@ class RegisteredCard {
     required this.enabled,
     required this.createdAt,
     this.lastTriggeredAt,
+    this.style = 0,
   });
 
   factory RegisteredCard.create({
@@ -25,6 +26,7 @@ class RegisteredCard {
     required String fingerprint,
     required CardCategory category,
     required String message,
+    int style = 0,
     DateTime? now,
   }) => RegisteredCard(
     id: _newId(),
@@ -34,6 +36,7 @@ class RegisteredCard {
     message: message.trim(),
     enabled: true,
     createdAt: now ?? DateTime.now(),
+    style: style,
   );
 
   factory RegisteredCard.fromJson(Map<String, Object?> json) => RegisteredCard(
@@ -51,6 +54,7 @@ class RegisteredCard {
       final String s => DateTime.parse(s),
       _ => null,
     },
+    style: json['style'] as int? ?? 0,
   );
 
   final String id;
@@ -62,6 +66,10 @@ class RegisteredCard {
   final DateTime createdAt;
   final DateTime? lastTriggeredAt;
 
+  /// Index into the card colour palette (see `CardFace`). Optional field added
+  /// without a schema bump: older files simply default to 0.
+  final int style;
+
   Map<String, Object?> toJson() => {
     'id': id,
     'name': name,
@@ -71,6 +79,7 @@ class RegisteredCard {
     'enabled': enabled,
     'createdAt': createdAt.toIso8601String(),
     'lastTriggeredAt': lastTriggeredAt?.toIso8601String(),
+    'style': style,
   };
 
   RegisteredCard copyWith({
@@ -78,6 +87,7 @@ class RegisteredCard {
     String? message,
     bool? enabled,
     DateTime? lastTriggeredAt,
+    int? style,
   }) => RegisteredCard(
     id: id,
     name: name?.trim() ?? this.name,
@@ -87,6 +97,7 @@ class RegisteredCard {
     enabled: enabled ?? this.enabled,
     createdAt: createdAt,
     lastTriggeredAt: lastTriggeredAt ?? this.lastTriggeredAt,
+    style: style ?? this.style,
   );
 
   static String _newId() {

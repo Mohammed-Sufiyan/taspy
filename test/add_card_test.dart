@@ -126,30 +126,67 @@ void main() {
     controller = AddCardController(platform, cards); // for tearDown
   });
 
-  testWidgets('screen walks through tap, confirm and form', (tester) async {
+  Future<void> walkThroughScreen(WidgetTester tester) async {
     platform = FakeNfcPlatform();
     repo = MemoryCardRepository();
     cards = CardsController(repo);
     controller = AddCardController(platform, cards); // unused; for tearDown
     await tester.pumpWidget(
       MaterialApp(
-        home: AddCardScreen(platform: platform, cards: cards),
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => AddCardScreen(platform: platform, cards: cards),
+              ),
+            ),
+            child: const Text('open'),
+          ),
+        ),
       ),
     );
+    await tester.tap(find.text('open'));
     await tester.pump();
-    expect(find.text('Tap your card'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('Tap your card on the back'), findsOneWidget);
 
     platform.tap(at: t0);
-    await tester.pump();
-    expect(find.text('Card detected. Tap it again'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Got it! Tap once more'), findsOneWidget);
 
     platform.tap(at: t0.add(const Duration(seconds: 2)));
-    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
     expect(find.text('Card verified'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextFormField).first, 'SBI Card');
-    await tester.tap(find.text('Save card'));
-    await tester.pumpAndSettle();
+    final list = find.byType(Scrollable).first;
+    final nameField = find.widgetWithText(TextFormField, 'Card name');
+    await tester.scrollUntilVisible(nameField, 200, scrollable: list);
+    await tester.enterText(nameField, 'SBI Card');
+    await tester.pump(const Duration(milliseconds: 500));
+    // Live preview on the card face.
+    expect(find.text('SBI Card'), findsWidgets);
+
+    final grape = find.byKey(const ValueKey('palette-2'));
+    await tester.scrollUntilVisible(grape, -200, scrollable: list);
+    await tester.tap(grape);
+    final save = find.text('Save card');
+    await tester.scrollUntilVisible(save, 200, scrollable: list);
+    await tester.tap(save);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('All set!'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(seconds: 1)); // Route pop transition.
+    expect(find.text('open'), findsOneWidget); // Back on the previous screen.
     expect(repo.stored.single.name, 'SBI Card');
+    expect(repo.stored.single.style, 2);
+  }
+
+  testWidgets('screen walks through tap, confirm and form', walkThroughScreen);
+
+  testWidgets('same flow works with animations turned off', (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    await walkThroughScreen(tester);
   });
 }

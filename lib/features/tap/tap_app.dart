@@ -1,10 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../app/theme.dart';
+import '../../shared/motion.dart';
+import '../../shared/widgets/effects.dart';
 import '../cards/data/card_repository.dart';
 import '../cards/domain/tap_resolver.dart';
+import '../cards/presentation/card_face.dart';
 import '../cards/presentation/cards_controller.dart';
 import '../nfc/data/nfc_platform.dart';
 
@@ -26,6 +30,9 @@ class _TapAppState extends State<TapApp> {
   TapOutcome? _outcome;
   String? _error;
 
+  /// Bumped per tap so a second tap replays the entrance animation.
+  int _tapCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -44,13 +51,19 @@ class _TapAppState extends State<TapApp> {
     // Always read fresh: cards may have changed since this engine started.
     await _cards.load();
     if (_cards.loadError case final error?) {
-      setState(() => _error = error);
+      Haptics.error();
+      setState(() {
+        _error = error;
+        _tapCount++;
+      });
       return;
     }
     final outcome = resolveTap(event.reading, _cards.cards);
+    outcome is RegisteredTap ? Haptics.celebrate() : Haptics.error();
     setState(() {
       _outcome = outcome;
       _error = null;
+      _tapCount++;
     });
     if (outcome is RegisteredTap) {
       // Best effort: the popup still shows if this write fails.
@@ -73,8 +86,9 @@ class _TapAppState extends State<TapApp> {
             color: Colors.black54,
             child: Center(
               child: GestureDetector(
-                onTap: () {}, // Taps inside the dialog don't dismiss it.
-                child: _TapDialog(
+                onTap: () {}, // Taps inside the popup don't dismiss it.
+                child: TapPopup(
+                  key: ValueKey(_tapCount),
                   outcome: _outcome,
                   error: _error,
                   onClose: widget.platform.close,
@@ -89,96 +103,153 @@ class _TapAppState extends State<TapApp> {
   }
 }
 
-class _TapDialog extends StatelessWidget {
-  const _TapDialog({
+/// The popup card itself. Also used in-app to preview a card's popup.
+class TapPopup extends StatelessWidget {
+  const TapPopup({
+    super.key,
     required this.outcome,
-    required this.error,
     required this.onClose,
-    required this.onOpenApp,
+    this.error,
+    this.onOpenApp,
   });
 
   final TapOutcome? outcome;
   final String? error;
   final VoidCallback onClose;
-  final VoidCallback onOpenApp;
+  final VoidCallback? onOpenApp;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final still = reduceMotion(context);
     final ok = FilledButton(onPressed: onClose, child: const Text('OK'));
-    final openApp = TextButton(
-      onPressed: onOpenApp,
-      child: const Text('Open app'),
-    );
+    final openApp = onOpenApp == null
+        ? null
+        : TextButton(onPressed: onOpenApp, child: const Text('Open Tapsy'));
 
-    final (icon, color, title, body, actions) = switch ((error, outcome)) {
+    Widget badge(IconData icon, Color bg, Color fg, {bool wobble = false}) {
+      Widget w = CircleAvatar(
+        radius: 34,
+        backgroundColor: bg,
+        child: Icon(icon, size: 36, color: fg),
+      );
+      if (wobble && !still) {
+        w = w
+            .animate()
+            .rotate(
+              begin: -0.04,
+              end: 0.04,
+              duration: 120.ms,
+              curve: Curves.easeInOut,
+            )
+            .then()
+            .rotate(begin: 0.04, end: 0, duration: 200.ms);
+      }
+      return w;
+    }
+
+    final (
+      Widget art,
+      String title,
+      String body,
+      List<Widget> actions,
+    ) = switch ((error, outcome)) {
       (final String e, _) => (
-        Icons.error_outline,
-        scheme.error,
+        badge(Icons.error_outline, scheme.errorContainer, scheme.error),
         'Could not check this card',
         e,
-        [openApp, ok],
+        [?openApp, ok],
       ),
       (_, RegisteredTap(:final card)) => (
-        Icons.verified,
-        scheme.primary,
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            PulseRings(
+              color: CardPalette.of(card.style).end,
+              size: 220,
+              child: const SizedBox.shrink(),
+            ),
+            SizedBox(
+              width: 170,
+              child: CardFace(name: card.name, style: card.style),
+            ),
+            Positioned(
+              right: 18,
+              bottom: 34,
+              child: AnimatedCheck(color: scheme.primary, size: 44),
+            ),
+          ],
+        ),
         card.name,
         card.message,
         [ok],
       ),
       (_, DisabledCardTap(:final card)) => (
-        Icons.notifications_off_outlined,
-        scheme.outline,
+        badge(
+          Icons.pause_circle_outline,
+          scheme.surfaceContainerHighest,
+          scheme.outline,
+        ),
         card.name,
-        'This card is turned off. Turn it back on in the app to show its message.',
-        [openApp, ok],
+        'This card is turned off. Turn it back on in Tapsy to show its message.',
+        [?openApp, ok],
       ),
       (_, UnknownCardTap()) => (
-        Icons.help_outline,
-        scheme.tertiary,
-        'Unregistered card',
-        'This card is not registered. Open the app to add it.',
-        [openApp, ok],
+        badge(
+          Icons.question_mark_rounded,
+          scheme.tertiaryContainer,
+          scheme.onTertiaryContainer,
+          wobble: true,
+        ),
+        'New card?',
+        "Tapsy doesn't know this card yet. Open the app to add it.",
+        [?openApp, ok],
       ),
       (_, null) => (
-        Icons.contactless,
-        scheme.primary,
+        const SizedBox(
+          height: 72,
+          child: Center(child: CircularProgressIndicator()),
+        ),
         'Reading card…',
         '',
         <Widget>[],
       ),
     };
 
-    return Container(
+    final registered = outcome is RegisteredTap;
+    Widget popup = Container(
       constraints: const BoxConstraints(maxWidth: 360),
       margin: const EdgeInsets.all(24),
       child: Material(
         color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(32),
+        clipBehavior: Clip.antiAlias,
+        elevation: 12,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 40, color: color),
-              const SizedBox(height: 16),
+              if (registered)
+                SizedBox(height: 170, child: Center(child: art))
+              else
+                Padding(padding: const EdgeInsets.only(top: 8), child: art),
+              const SizedBox(height: 12),
               Text(
                 title,
-                style: Theme.of(context).textTheme.headlineSmall,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
                 textAlign: TextAlign.center,
               ),
               if (body.isNotEmpty) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Text(
                   body,
-                  style: Theme.of(context).textTheme.bodyLarge,
+                  style: theme.textTheme.bodyLarge,
                   textAlign: TextAlign.center,
                 ),
-              ],
-              if (outcome == null && error == null) ...[
-                const SizedBox(height: 16),
-                const LinearProgressIndicator(),
-                const SizedBox(height: 8),
               ],
               if (actions.isNotEmpty) ...[
                 const SizedBox(height: 20),
@@ -194,5 +265,15 @@ class _TapDialog extends StatelessWidget {
         ),
       ),
     );
+
+    if (still) return popup;
+    return popup
+        .animate()
+        .fadeIn(duration: 180.ms)
+        .scale(
+          begin: const Offset(0.82, 0.82),
+          duration: 550.ms,
+          curve: Curves.elasticOut,
+        );
   }
 }
