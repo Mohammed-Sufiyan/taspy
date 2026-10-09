@@ -63,7 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('NFC PIN App'),
+        title: const Text('Tapsy'),
         actions: [
           IconButton(
             tooltip: 'Settings',

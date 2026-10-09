@@ -4,7 +4,10 @@
     <uses-feature android:name="android.hardware.nfc" android:required="false" />
 
     <application
-        android:label="NFC PIN App"
+        android:label="Tapsy"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

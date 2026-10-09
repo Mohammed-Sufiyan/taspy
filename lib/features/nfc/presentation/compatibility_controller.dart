@@ -160,7 +160,7 @@ class CompatibilityController extends ChangeNotifier {
 
   /// Plain-text summary for sharing test results. Contains no card data.
   String report() {
-    final b = StringBuffer('NFC PIN App - compatibility report\n');
+    final b = StringBuffer('Tapsy - compatibility report\n');
     final s = status;
     if (s != null) {
       b.writeln(
