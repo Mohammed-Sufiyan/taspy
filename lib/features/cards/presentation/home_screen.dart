@@ -9,6 +9,7 @@ import '../../../shared/widgets/pop_button.dart';
 import '../../../shared/widgets/tapsy_mark.dart';
 import '../../nfc/data/nfc_platform.dart';
 import '../../nfc/domain/nfc_models.dart';
+import '../../security/security_controller.dart';
 import '../../settings/settings_screen.dart';
 import '../../tap/tap_app.dart';
 import '../domain/registered_card.dart';
@@ -20,10 +21,16 @@ import 'cards_controller.dart';
 import 'wallet_stack.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.platform, required this.cards});
+  const HomeScreen({
+    super.key,
+    required this.platform,
+    required this.cards,
+    required this.security,
+  });
 
   final NfcPlatform platform;
   final CardsController cards;
+  final SecurityController security;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -64,8 +71,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _stackKey.currentState?.deselect();
     final added = await Navigator.of(context).push<String>(
       MaterialPageRoute(
-        builder: (_) =>
-            AddCardScreen(platform: widget.platform, cards: widget.cards),
+        builder: (_) => AddCardScreen(
+          platform: widget.platform,
+          cards: widget.cards,
+          security: widget.security,
+        ),
       ),
     );
     if (added != null && mounted) {
@@ -82,6 +92,7 @@ class _HomeScreenState extends State<HomeScreen> {
           cards: widget.cards,
           cardId: card.id,
           platform: widget.platform,
+          security: widget.security,
         ),
       ),
     );
@@ -103,7 +114,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void _preview(RegisteredCard card) {
     Haptics.celebrate();
     widget.platform.playTapSound();
-    showTapPopupPreview(context, RegisteredTap(card));
+    showTapPopupPreview(
+      context,
+      RegisteredTap(card),
+      onVerify: () => widget.security.verify('Reveal your secret message'),
+    );
   }
 
   Future<void> _toggle(RegisteredCard card) async {
@@ -147,7 +162,10 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: const Icon(Icons.settings_outlined),
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => SettingsScreen(platform: widget.platform),
+                  builder: (_) => SettingsScreen(
+                    platform: widget.platform,
+                    security: widget.security,
+                  ),
                 ),
               ),
             ),
@@ -310,7 +328,7 @@ class _RecentTaps extends StatelessWidget {
                           children: [
                             Text(card.name, style: theme.textTheme.titleSmall),
                             Text(
-                              card.message,
+                              card.secret ? '🔒 Secret message' : card.message,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodySmall,

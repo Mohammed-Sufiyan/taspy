@@ -5,6 +5,9 @@ import 'package:nfcpin/features/cards/presentation/add_card_screen.dart';
 import 'package:nfcpin/features/cards/presentation/cards_controller.dart';
 import 'package:nfcpin/features/nfc/domain/nfc_models.dart';
 
+import 'package:nfcpin/features/security/security_controller.dart';
+
+import 'fake_auth.dart';
 import 'fake_nfc_platform.dart';
 import 'memory_card_repository.dart';
 
@@ -137,7 +140,11 @@ void main() {
           builder: (context) => TextButton(
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => AddCardScreen(platform: platform, cards: cards),
+                builder: (_) => AddCardScreen(
+                  platform: platform,
+                  cards: cards,
+                  security: SecurityController(platform, FakeAuthService()),
+                ),
               ),
             ),
             child: const Text('open'),

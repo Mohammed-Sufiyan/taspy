@@ -31,10 +31,17 @@ class NfcScanException implements Exception {
 
 /// Small user preferences kept natively (readable from the tap popup too).
 class AppSettings {
-  const AppSettings({required this.sound, required this.onboarded});
+  const AppSettings({
+    required this.sound,
+    required this.onboarded,
+    this.appLock = false,
+  });
 
   final bool sound;
   final bool onboarded;
+
+  /// Require fingerprint/face/PIN to open Tapsy.
+  final bool appLock;
 }
 
 /// Boundary to the native NFC layer (see `NfcBridge.kt`).
@@ -55,6 +62,9 @@ abstract class NfcPlatform {
 
   Future<AppSettings> getSettings();
   Future<void> setSetting(String key, bool value);
+
+  /// Blocks screenshots and blanks the app's Recents thumbnail while on.
+  Future<void> setSecure(bool secure);
 
   Stream<NfcEvent> get events;
 }
@@ -99,8 +109,13 @@ class MethodChannelNfcPlatform implements NfcPlatform {
     return AppSettings(
       sound: map?['sound'] != false,
       onboarded: map?['onboarded'] == true,
+      appLock: map?['appLock'] == true,
     );
   }
+
+  @override
+  Future<void> setSecure(bool secure) =>
+      _methods.invokeMethod<void>('setSecure', {'secure': secure});
 
   @override
   Future<void> setSetting(String key, bool value) =>

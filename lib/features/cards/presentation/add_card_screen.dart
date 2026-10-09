@@ -7,6 +7,7 @@ import '../../../shared/widgets/effects.dart';
 import '../../../shared/widgets/glow_background.dart';
 import '../../../shared/widgets/pop_button.dart';
 import '../../nfc/data/nfc_platform.dart';
+import '../../security/security_controller.dart';
 import '../domain/registered_card.dart';
 import 'add_card_controller.dart';
 import 'card_face.dart';
@@ -16,10 +17,16 @@ import 'scan_animation.dart';
 
 /// Pops with the new card's name once it is saved.
 class AddCardScreen extends StatefulWidget {
-  const AddCardScreen({super.key, required this.platform, required this.cards});
+  const AddCardScreen({
+    super.key,
+    required this.platform,
+    required this.cards,
+    required this.security,
+  });
 
   final NfcPlatform platform;
   final CardsController cards;
+  final SecurityController security;
 
   @override
   State<AddCardScreen> createState() => _AddCardScreenState();
@@ -34,6 +41,7 @@ class _AddCardScreenState extends State<AddCardScreen> {
   final _name = TextEditingController();
   final _message = TextEditingController(text: CardValidation.defaultMessage);
   int _style = 0;
+  bool _secret = false;
   AddCardStep _lastStep = AddCardStep.checkingNfc;
   RegisteredCard? _saved;
 
@@ -79,6 +87,7 @@ class _AddCardScreenState extends State<AddCardScreen> {
       name: _name.text,
       message: _message.text,
       style: _style,
+      secret: _secret,
     );
     if (card == null || !mounted) return;
     Haptics.celebrate();
@@ -332,6 +341,13 @@ class _AddCardScreenState extends State<AddCardScreen> {
       Form(
         key: _formKey,
         child: CardFormFields(name: _name, message: _message, enabled: !saving),
+      ),
+      const SizedBox(height: 8),
+      SecretSwitch(
+        value: _secret,
+        enabled: !saving,
+        available: widget.security.available,
+        onChanged: (v) => setState(() => _secret = v),
       ),
       if (_c.saveError case final error?)
         Padding(

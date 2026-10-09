@@ -6,6 +6,9 @@ import 'package:nfcpin/features/cards/presentation/cards_controller.dart';
 import 'package:nfcpin/features/cards/presentation/home_screen.dart';
 import 'package:nfcpin/features/nfc/domain/nfc_models.dart';
 
+import 'package:nfcpin/features/security/security_controller.dart';
+
+import 'fake_auth.dart';
 import 'fake_nfc_platform.dart';
 import 'memory_card_repository.dart';
 
@@ -38,7 +41,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.dark,
-        home: HomeScreen(platform: platform, cards: controller),
+        home: HomeScreen(
+          platform: platform,
+          cards: controller,
+          security: SecurityController(platform, FakeAuthService()),
+        ),
       ),
     );
     await tester.pump(const Duration(seconds: 1));

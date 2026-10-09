@@ -15,13 +15,21 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.view.WindowManager
 import android.util.Base64
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 /**
  * Native NFC layer for the compatibility test.
@@ -151,6 +159,7 @@ class NfcBridge(private val activity: Activity, messenger: BinaryMessenger) :
                 mapOf(
                     "sound" to settings().getBoolean("sound", true),
                     "onboarded" to settings().getBoolean("onboarded", false),
+                    "appLock" to settings().getBoolean("appLock", false),
                 ),
             )
             "setSetting" -> {
@@ -162,6 +171,25 @@ class NfcBridge(private val activity: Activity, messenger: BinaryMessenger) :
                     settings().edit().putBoolean(key, value).apply()
                     result.success(null)
                 }
+            }
+            "setSecure" -> {
+                // Blocks screenshots/screen recording and blanks the Recents thumbnail.
+                if (call.argument<Boolean>("secure") == true) {
+                    activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+                result.success(null)
+            }
+            "encrypt" -> try {
+                result.success(encrypt(call.argument<String>("text") ?: ""))
+            } catch (e: Exception) {
+                result.error("crypto", e.javaClass.simpleName, null)
+            }
+            "decrypt" -> try {
+                result.success(decrypt(call.argument<String>("data") ?: ""))
+            } catch (e: Exception) {
+                result.error("crypto", e.javaClass.simpleName, null)
             }
             "playTapSound" -> {
                 playTapSound()
@@ -260,6 +288,49 @@ class NfcBridge(private val activity: Activity, messenger: BinaryMessenger) :
         return fresh
     }
 
+    // ---- Storage encryption ----------------------------------------------------------
+
+    /**
+     * AES-256-GCM key generated inside the Android Keystore (hardware-backed where the
+     * phone supports it). The key material never leaves the Keystore. It is not bound to
+     * user authentication, so the tap popup can still read cards without a prompt.
+     */
+    private fun storageKey(): SecretKey {
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (ks.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build(),
+        )
+        return generator.generateKey()
+    }
+
+    /** Returns base64(iv || ciphertext+tag). */
+    private fun encrypt(text: String): String {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, storageKey())
+        val out = cipher.iv + cipher.doFinal(text.toByteArray(Charsets.UTF_8))
+        return Base64.encodeToString(out, Base64.NO_WRAP)
+    }
+
+    private fun decrypt(data: String): String {
+        val bytes = Base64.decode(data, Base64.NO_WRAP)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(
+            Cipher.DECRYPT_MODE,
+            storageKey(),
+            GCMParameterSpec(128, bytes.copyOfRange(0, GCM_IV_BYTES)),
+        )
+        return String(cipher.doFinal(bytes, GCM_IV_BYTES, bytes.size - GCM_IV_BYTES), Charsets.UTF_8)
+    }
+
     private fun settings() =
         activity.getSharedPreferences("tapsy_settings", Context.MODE_PRIVATE)
 
@@ -312,7 +383,9 @@ class NfcBridge(private val activity: Activity, messenger: BinaryMessenger) :
 
     companion object {
         private const val EXTRA_HANDLED = "com.dfx.nfcpin.HANDLED"
-        private val SETTING_KEYS = setOf("sound", "onboarded")
+        private val SETTING_KEYS = setOf("sound", "onboarded", "appLock")
+        private const val KEY_ALIAS = "tapsy_storage_v1"
+        private const val GCM_IV_BYTES = 12
         private val NFC_ACTIONS = setOf(
             NfcAdapter.ACTION_NDEF_DISCOVERED,
             NfcAdapter.ACTION_TECH_DISCOVERED,

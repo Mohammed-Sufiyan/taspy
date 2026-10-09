@@ -6,7 +6,9 @@ import '../../../shared/format.dart';
 import '../../../shared/motion.dart';
 import '../../../shared/widgets/glow_background.dart';
 import '../../../shared/widgets/pop_button.dart';
+import '../../../shared/security/auth_service.dart';
 import '../../nfc/data/nfc_platform.dart';
+import '../../security/security_controller.dart';
 import '../../tap/tap_app.dart';
 import '../domain/registered_card.dart';
 import '../domain/tap_resolver.dart';
@@ -21,11 +23,13 @@ class CardDetailsScreen extends StatefulWidget {
     required this.cards,
     required this.cardId,
     required this.platform,
+    required this.security,
   });
 
   final CardsController cards;
   final String cardId;
   final NfcPlatform platform;
+  final SecurityController security;
 
   @override
   State<CardDetailsScreen> createState() => _CardDetailsScreenState();
@@ -36,8 +40,34 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
   final _name = TextEditingController();
   final _message = TextEditingController();
   int _style = 0;
+  bool _secret = false;
   bool _editing = false;
   bool _busy = false;
+
+  /// A secret card's message stays hidden on this screen until verified.
+  bool _revealed = false;
+
+  Future<bool> _ensureRevealed(RegisteredCard card) async {
+    if (!card.secret || _revealed) return true;
+    final result = await widget.security.verify('Reveal your secret message');
+    if (!mounted) return false;
+    if (result == AuthResult.success) {
+      setState(() => _revealed = true);
+      Haptics.success();
+      return true;
+    }
+    Haptics.error();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result == AuthResult.unavailable
+              ? 'Set up a fingerprint or screen lock to view secret messages.'
+              : 'Not verified.',
+        ),
+      ),
+    );
+    return false;
+  }
 
   @override
   void initState() {
@@ -69,10 +99,13 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
     }
   }
 
-  void _startEditing(RegisteredCard card) {
+  Future<void> _startEditing(RegisteredCard card) async {
+    // Editing shows the message, so a secret card must be verified first.
+    if (!await _ensureRevealed(card)) return;
     _name.text = card.name;
     _message.text = card.message;
     _style = card.style;
+    _secret = card.secret;
     setState(() => _editing = true);
   }
 
@@ -84,6 +117,7 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
         name: _name.text,
         message: _message.text,
         style: _style,
+        secret: _secret,
       );
       Haptics.success();
       if (mounted) setState(() => _editing = false);
@@ -123,7 +157,11 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
   void _preview(RegisteredCard card) {
     Haptics.celebrate();
     widget.platform.playTapSound();
-    showTapPopupPreview(context, RegisteredTap(card));
+    showTapPopupPreview(
+      context,
+      RegisteredTap(card),
+      onVerify: () => widget.security.verify('Reveal your secret message'),
+    );
   }
 
   @override
@@ -161,7 +199,14 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
                 enabled: !_busy,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
+            SecretSwitch(
+              value: _secret,
+              enabled: !_busy,
+              available: widget.security.available,
+              onChanged: (v) => setState(() => _secret = v),
+            ),
+            const SizedBox(height: 16),
             PopButton(label: 'SAVE CHANGES', busy: _busy, onPressed: _saveEdit),
             const SizedBox(height: 12),
             PopButton.dark(
@@ -199,10 +244,39 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    card.message,
-                    style: theme.textTheme.titleMedium?.copyWith(height: 1.4),
-                  ),
+                  if (card.secret && !_revealed)
+                    InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => _ensureRevealed(card),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.lock_rounded,
+                              size: 18,
+                              color: TapsyColors.lime,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                '••••••••••  Tap to reveal',
+                                style: theme.textTheme.titleMedium,
+                              ),
+                            ),
+                            const Icon(
+                              Icons.fingerprint_rounded,
+                              color: TapsyColors.textMuted,
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    Text(
+                      card.message,
+                      style: theme.textTheme.titleMedium?.copyWith(height: 1.4),
+                    ),
                   const SizedBox(height: 16),
                   PopButton.dark(
                     label: 'PREVIEW TAP',
@@ -282,6 +356,7 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
                       name: _editing ? _name.text.trim() : card.name,
                       style: style,
                       enabled: card.enabled,
+                      secret: _editing ? _secret : card.secret,
                     ),
                   ),
                 ),

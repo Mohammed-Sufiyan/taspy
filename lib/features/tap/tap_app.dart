@@ -5,6 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../app/theme.dart';
 import '../../shared/motion.dart';
+import '../../shared/security/auth_service.dart';
 import '../../shared/widgets/effects.dart';
 import '../../shared/widgets/pop_button.dart';
 import '../cards/data/card_repository.dart';
@@ -17,10 +18,16 @@ import '../nfc/data/nfc_platform.dart';
 /// Shown over other apps when a card is tapped (runs in `TapActivity`, a
 /// transparent Android activity with its own Flutter engine).
 class TapApp extends StatefulWidget {
-  const TapApp({super.key, required this.platform, required this.repository});
+  const TapApp({
+    super.key,
+    required this.platform,
+    required this.repository,
+    required this.auth,
+  });
 
   final NfcPlatform platform;
   final CardRepository repository;
+  final AuthService auth;
 
   @override
   State<TapApp> createState() => _TapAppState();
@@ -64,6 +71,8 @@ class _TapAppState extends State<TapApp> {
     if (outcome is RegisteredTap) {
       Haptics.celebrate();
       widget.platform.playTapSound();
+      // No screenshots or screen recording while a secret could be shown.
+      widget.platform.setSecure(outcome.card.secret).ignore();
     } else {
       Haptics.error();
     }
@@ -101,6 +110,8 @@ class _TapAppState extends State<TapApp> {
                   error: _error,
                   onClose: widget.platform.close,
                   onOpenApp: widget.platform.openApp,
+                  onVerify: () =>
+                      widget.auth.authenticate('Reveal your secret message'),
                 ),
               ),
             ],
@@ -112,7 +123,11 @@ class _TapAppState extends State<TapApp> {
 }
 
 /// Shows the tap sheet inside the app (the "Preview" action).
-Future<void> showTapPopupPreview(BuildContext context, TapOutcome outcome) {
+Future<void> showTapPopupPreview(
+  BuildContext context,
+  TapOutcome outcome, {
+  Future<AuthResult> Function()? onVerify,
+}) {
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
@@ -124,6 +139,7 @@ Future<void> showTapPopupPreview(BuildContext context, TapOutcome outcome) {
       child: TapSheet(
         outcome: outcome,
         onClose: () => Navigator.of(context).pop(),
+        onVerify: onVerify,
       ),
     ),
   );
@@ -138,6 +154,7 @@ class TapSheet extends StatefulWidget {
     required this.onClose,
     this.error,
     this.onOpenApp,
+    this.onVerify,
   });
 
   final TapOutcome? outcome;
@@ -145,12 +162,45 @@ class TapSheet extends StatefulWidget {
   final VoidCallback onClose;
   final VoidCallback? onOpenApp;
 
+  /// Biometric check used to reveal a secret card's message.
+  final Future<AuthResult> Function()? onVerify;
+
   @override
   State<TapSheet> createState() => _TapSheetState();
 }
 
 class _TapSheetState extends State<TapSheet> {
   double _drag = 0;
+  bool _revealed = false;
+  bool _verifying = false;
+  String? _verifyError;
+
+  bool get _hidden =>
+      !_revealed &&
+      widget.outcome is RegisteredTap &&
+      (widget.outcome! as RegisteredTap).card.secret;
+
+  Future<void> _verify() async {
+    final verify = widget.onVerify;
+    if (verify == null || _verifying) return;
+    setState(() {
+      _verifying = true;
+      _verifyError = null;
+    });
+    final result = await verify();
+    if (!mounted) return;
+    setState(() {
+      _verifying = false;
+      _revealed = result == AuthResult.success;
+      _verifyError = switch (result) {
+        AuthResult.success => null,
+        AuthResult.failed => 'Not verified. The message stays hidden.',
+        AuthResult.unavailable =>
+          'Set up a fingerprint or screen lock to reveal secret messages.',
+      };
+    });
+    result == AuthResult.success ? Haptics.success() : Haptics.error();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -189,6 +239,16 @@ class _TapSheetState extends State<TapSheet> {
     };
 
     final actions = switch (outcome) {
+      RegisteredTap() when _hidden => [
+        PopButton(
+          label: 'VERIFY TO REVEAL',
+          icon: Icons.fingerprint_rounded,
+          busy: _verifying,
+          onPressed: widget.onVerify == null ? null : _verify,
+        ),
+        const SizedBox(height: 12),
+        PopButton.dark(label: 'CLOSE', onPressed: widget.onClose),
+      ],
       RegisteredTap() => [PopButton(label: 'DONE', onPressed: widget.onClose)],
       null when widget.error == null => <Widget>[],
       _ => [
@@ -275,7 +335,11 @@ class _TapSheetState extends State<TapSheet> {
           PulseRings(color: glow, size: 260, child: const SizedBox.shrink()),
           SizedBox(
             width: 230,
-            child: CardFace(name: card.name, style: card.style),
+            child: CardFace(
+              name: card.name,
+              style: card.style,
+              secret: card.secret,
+            ),
           ),
           Positioned(
             right: 40,
@@ -305,14 +369,17 @@ class _TapSheetState extends State<TapSheet> {
         textAlign: TextAlign.center,
       ),
       const SizedBox(height: 8),
-      Text(
-        card.message,
-        style: theme.textTheme.bodyLarge?.copyWith(
-          color: TapsyColors.textMuted,
-          height: 1.4,
-        ),
-        textAlign: TextAlign.center,
-      ),
+      if (_hidden)
+        _SecretPlaceholder(error: _verifyError)
+      else
+        Text(
+          card.message,
+          style: theme.textTheme.bodyLarge?.copyWith(
+            color: TapsyColors.textMuted,
+            height: 1.4,
+          ),
+          textAlign: TextAlign.center,
+        ).animate(key: ValueKey(_revealed)).fadeIn(duration: 350.ms),
     ];
     return Column(
       children: [
@@ -374,6 +441,53 @@ class _TapSheetState extends State<TapSheet> {
           ),
           textAlign: TextAlign.center,
         ),
+      ],
+    );
+  }
+}
+
+/// Stand-in for a secret card's message until the user verifies.
+class _SecretPlaceholder extends StatelessWidget {
+  const _SecretPlaceholder({this.error});
+
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          decoration: BoxDecoration(
+            color: TapsyColors.surfaceHigh,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: TapsyColors.outline),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.lock_rounded, size: 18, color: TapsyColors.lime),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  'Secret message',
+                  style: theme.textTheme.titleSmall,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (error != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            error!,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: TapsyColors.danger,
+            ),
+          ),
+        ],
       ],
     );
   }

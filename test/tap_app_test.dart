@@ -3,15 +3,22 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nfcpin/features/cards/domain/registered_card.dart';
 import 'package:nfcpin/features/nfc/domain/nfc_models.dart';
 import 'package:nfcpin/features/tap/tap_app.dart';
+import 'package:nfcpin/shared/security/auth_service.dart';
 
+import 'fake_auth.dart';
 import 'fake_nfc_platform.dart';
 import 'memory_card_repository.dart';
 
 void main() {
   late FakeNfcPlatform platform;
   late MemoryCardRepository repo;
+  late FakeAuthService auth;
 
-  Future<void> pumpPopup(WidgetTester tester, {bool enabled = true}) async {
+  Future<void> pumpPopup(
+    WidgetTester tester, {
+    bool enabled = true,
+    bool secret = false,
+  }) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
@@ -23,9 +30,12 @@ void main() {
           fingerprint: 'aaaa-bbbb-cccc',
           category: CardCategory.smartCard,
           message: 'Your registered card was detected.',
-        ).copyWith(enabled: enabled),
+        ).copyWith(enabled: enabled, secret: secret),
       ];
-    await tester.pumpWidget(TapApp(platform: platform, repository: repo));
+    auth = FakeAuthService();
+    await tester.pumpWidget(
+      TapApp(platform: platform, repository: repo, auth: auth),
+    );
   }
 
   Future<void> tapCard(WidgetTester tester, String fingerprint) async {
@@ -34,7 +44,9 @@ void main() {
       fingerprint: fingerprint,
     );
     await tester.pump();
-    await tester.pump(const Duration(seconds: 1)); // Sheet builds, animation starts.
+    await tester.pump(
+      const Duration(seconds: 1),
+    ); // Sheet builds, animation starts.
     await tester.pump(const Duration(seconds: 1)); // Slide-up finishes.
   }
 
@@ -86,5 +98,26 @@ void main() {
     await tapCard(tester, 'aaaa-bbbb-cccc');
     expect(find.text('Your registered card was detected.'), findsOneWidget);
     await tester.pumpAndSettle(); // Nothing loops when motion is reduced.
+  });
+
+  testWidgets('secret card hides its message until verified', (tester) async {
+    await pumpPopup(tester, secret: true);
+    await tapCard(tester, 'aaaa-bbbb-cccc');
+    expect(find.text('Secret message'), findsOneWidget);
+    expect(find.text('Your registered card was detected.'), findsNothing);
+    expect(platform.secure, isTrue); // Screenshots blocked.
+
+    auth.result = AuthResult.failed;
+    await tester.tap(find.text('VERIFY TO REVEAL'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Your registered card was detected.'), findsNothing);
+    expect(find.textContaining('Not verified'), findsOneWidget);
+
+    auth.result = AuthResult.success;
+    await tester.tap(find.text('VERIFY TO REVEAL'));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Your registered card was detected.'), findsOneWidget);
+    expect(find.text('DONE'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1)); // Reveal animation ends.
   });
 }

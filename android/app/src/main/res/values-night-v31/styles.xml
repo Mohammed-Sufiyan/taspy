@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Dark mode on Android 12+: same teal splash (night outranks API level in resource lookup). -->
-    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+    <style name="LaunchTheme" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowSplashScreenBackground">@color/splash_background</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
     </style>
-    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+    <style name="NormalTheme" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
 </resources>

@@ -19,6 +19,7 @@ class RegisteredCard {
     required this.createdAt,
     this.lastTriggeredAt,
     this.style = 0,
+    this.secret = false,
   });
 
   factory RegisteredCard.create({
@@ -27,6 +28,7 @@ class RegisteredCard {
     required CardCategory category,
     required String message,
     int style = 0,
+    bool secret = false,
     DateTime? now,
   }) => RegisteredCard(
     id: _newId(),
@@ -37,6 +39,7 @@ class RegisteredCard {
     enabled: true,
     createdAt: now ?? DateTime.now(),
     style: style,
+    secret: secret,
   );
 
   factory RegisteredCard.fromJson(Map<String, Object?> json) => RegisteredCard(
@@ -55,6 +58,7 @@ class RegisteredCard {
       _ => null,
     },
     style: json['style'] as int? ?? 0,
+    secret: json['secret'] as bool? ?? false,
   );
 
   final String id;
@@ -70,6 +74,10 @@ class RegisteredCard {
   /// without a schema bump: older files simply default to 0.
   final int style;
 
+  /// The message is hidden until the user verifies with fingerprint/face/PIN,
+  /// both in the tap popup and in the app.
+  final bool secret;
+
   Map<String, Object?> toJson() => {
     'id': id,
     'name': name,
@@ -80,6 +88,7 @@ class RegisteredCard {
     'createdAt': createdAt.toIso8601String(),
     'lastTriggeredAt': lastTriggeredAt?.toIso8601String(),
     'style': style,
+    'secret': secret,
   };
 
   RegisteredCard copyWith({
@@ -88,6 +97,7 @@ class RegisteredCard {
     bool? enabled,
     DateTime? lastTriggeredAt,
     int? style,
+    bool? secret,
   }) => RegisteredCard(
     id: id,
     name: name?.trim() ?? this.name,
@@ -98,6 +108,7 @@ class RegisteredCard {
     createdAt: createdAt,
     lastTriggeredAt: lastTriggeredAt ?? this.lastTriggeredAt,
     style: style ?? this.style,
+    secret: secret ?? this.secret,
   );
 
   static String _newId() {

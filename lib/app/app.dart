@@ -4,13 +4,21 @@ import '../features/cards/presentation/cards_controller.dart';
 import '../features/cards/presentation/home_screen.dart';
 import '../features/nfc/data/nfc_platform.dart';
 import '../features/onboarding/onboarding_screen.dart';
+import '../features/security/app_lock_gate.dart';
+import '../features/security/security_controller.dart';
 import 'theme.dart';
 
 class NfcPinApp extends StatefulWidget {
-  const NfcPinApp({super.key, required this.platform, required this.cards});
+  const NfcPinApp({
+    super.key,
+    required this.platform,
+    required this.cards,
+    required this.security,
+  });
 
   final NfcPlatform platform;
   final CardsController cards;
+  final SecurityController security;
 
   @override
   State<NfcPinApp> createState() => _NfcPinAppState();
@@ -46,7 +54,14 @@ class _NfcPinAppState extends State<NfcPinApp> {
       home: switch (_showTour) {
         null => const Scaffold(),
         true => OnboardingScreen(onDone: _finishTour),
-        false => HomeScreen(platform: widget.platform, cards: widget.cards),
+        false => AppLockGate(
+          security: widget.security,
+          child: HomeScreen(
+            platform: widget.platform,
+            cards: widget.cards,
+            security: widget.security,
+          ),
+        ),
       },
     );
   }

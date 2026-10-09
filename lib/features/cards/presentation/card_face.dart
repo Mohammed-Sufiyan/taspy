@@ -280,6 +280,7 @@ class CardFace extends StatelessWidget {
     this.subtitle,
     this.shine = true,
     this.compact = false,
+    this.secret = false,
   });
 
   final String name;
@@ -292,6 +293,9 @@ class CardFace extends StatelessWidget {
 
   /// Hides the details for small thumbnails.
   final bool compact;
+
+  /// Shows a lock next to the contactless mark.
+  final bool secret;
 
   static const aspectRatio = 1.586; // ISO/IEC 7810 ID-1
 
@@ -343,6 +347,7 @@ class CardFace extends StatelessWidget {
                         name: name,
                         subtitle: subtitle,
                         width: w,
+                        secret: secret,
                       ),
                     ),
                 ],
@@ -395,12 +400,14 @@ class _Details extends StatelessWidget {
     required this.name,
     required this.subtitle,
     required this.width,
+    this.secret = false,
   });
 
   final CardSkin skin;
   final String name;
   final String? subtitle;
   final double width;
+  final bool secret;
 
   @override
   Widget build(BuildContext context) {
@@ -420,6 +427,10 @@ class _Details extends StatelessWidget {
               ),
             ),
             const Spacer(),
+            if (secret) ...[
+              Icon(Icons.lock_rounded, color: skin.ink, size: w * 0.065),
+              SizedBox(width: w * 0.025),
+            ],
             Icon(Icons.contactless_outlined, color: skin.ink, size: w * 0.09),
           ],
         ),

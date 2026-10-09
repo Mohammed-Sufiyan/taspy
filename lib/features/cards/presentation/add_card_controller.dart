@@ -93,6 +93,7 @@ class AddCardController extends ChangeNotifier {
     required String name,
     required String message,
     int style = 0,
+    bool secret = false,
   }) async {
     final tap = firstTap;
     if (step != AddCardStep.ready || tap == null) return null;
@@ -105,6 +106,7 @@ class AddCardController extends ChangeNotifier {
         fingerprint: tap.fingerprint!,
         category: tap.category,
         style: style,
+        secret: secret,
       );
     } on CardRuleException catch (e) {
       saveError = e.message;

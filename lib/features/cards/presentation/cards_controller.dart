@@ -75,6 +75,7 @@ class CardsController extends ChangeNotifier {
     required String fingerprint,
     required CardCategory category,
     int style = 0,
+    bool secret = false,
   }) async {
     _validate(name: name, message: message);
     // Re-read from disk: the tap popup may have changed the file meanwhile.
@@ -92,6 +93,7 @@ class CardsController extends ChangeNotifier {
       category: category,
       message: message,
       style: style,
+      secret: secret,
     );
     await _commit([...current, card]);
     return card;
@@ -102,11 +104,17 @@ class CardsController extends ChangeNotifier {
     required String name,
     required String message,
     int? style,
+    bool? secret,
   }) {
     _validate(name: name, message: message);
     return _update(
       id,
-      (c) => c.copyWith(name: name, message: message, style: style),
+      (c) => c.copyWith(
+        name: name,
+        message: message,
+        style: style,
+        secret: secret,
+      ),
     );
   }
 

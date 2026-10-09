@@ -4,14 +4,19 @@ import 'app/app.dart';
 import 'features/cards/data/card_repository.dart';
 import 'features/cards/presentation/cards_controller.dart';
 import 'features/nfc/data/nfc_platform.dart';
+import 'features/security/security_controller.dart';
 import 'features/tap/tap_app.dart';
+import 'shared/security/auth_service.dart';
+import 'shared/security/keystore_cipher.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  final platform = MethodChannelNfcPlatform();
   runApp(
     NfcPinApp(
-      platform: MethodChannelNfcPlatform(),
-      cards: CardsController(FileCardRepository()),
+      platform: platform,
+      cards: CardsController(FileCardRepository(cipher: KeystoreCipher())),
+      security: SecurityController(platform, LocalAuthService())..load(),
     ),
   );
 }
@@ -23,7 +28,8 @@ void tapMain() {
   runApp(
     TapApp(
       platform: MethodChannelNfcPlatform(),
-      repository: FileCardRepository(),
+      repository: FileCardRepository(cipher: KeystoreCipher()),
+      auth: LocalAuthService(),
     ),
   );
 }

@@ -4,12 +4,20 @@ import '../nfc/data/nfc_platform.dart';
 import '../nfc/domain/nfc_models.dart';
 import '../nfc/presentation/compatibility_controller.dart';
 import '../nfc/presentation/compatibility_screen.dart';
+import '../../app/theme.dart';
+import '../../shared/security/auth_service.dart';
 import '../onboarding/onboarding_screen.dart';
+import '../security/security_controller.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, required this.platform});
+  const SettingsScreen({
+    super.key,
+    required this.platform,
+    required this.security,
+  });
 
   final NfcPlatform platform;
+  final SecurityController security;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -64,6 +72,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         children: [
+          section('Security'),
+          ListenableBuilder(
+            listenable: widget.security,
+            builder: (context, _) {
+              final sec = widget.security;
+              return SwitchListTile(
+                key: const ValueKey('app-lock-switch'),
+                secondary: Icon(
+                  sec.appLock ? Icons.lock_rounded : Icons.lock_open_rounded,
+                  color: sec.appLock ? TapsyColors.lime : null,
+                ),
+                title: const Text('App lock'),
+                subtitle: Text(
+                  sec.available
+                      ? 'Fingerprint, face or PIN to open Tapsy. Locks again '
+                            'after 1 minute away and blocks screenshots.'
+                      : 'Set up a fingerprint or screen lock on your phone first.',
+                ),
+                value: sec.appLock,
+                onChanged: sec.available || sec.appLock
+                    ? (v) async {
+                        final result = await sec.setAppLock(v);
+                        if (!context.mounted || result == AuthResult.success) {
+                          return;
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              result == AuthResult.unavailable
+                                  ? 'No fingerprint, face or screen lock is set up.'
+                                  : 'Not verified, so app lock was not changed.',
+                            ),
+                          ),
+                        );
+                      }
+                    : null,
+              );
+            },
+          ),
+          const ListTile(
+            leading: Icon(Icons.enhanced_encryption_outlined),
+            title: Text('Encrypted storage'),
+            subtitle: Text(
+              'Your cards and tap history are encrypted with a key kept in '
+              'Android’s secure key store.',
+            ),
+          ),
           section('Tap feedback'),
           SwitchListTile(
             secondary: const Icon(Icons.volume_up_outlined),

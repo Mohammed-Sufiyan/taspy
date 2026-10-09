@@ -214,6 +214,7 @@ class WalletStackState extends State<WalletStack> {
       name: card.name,
       style: card.style,
       enabled: card.enabled,
+      secret: card.secret,
       subtitle: card.lastTriggeredAt == null
           ? 'Not tapped yet'
           : 'Last tap ${timeAgo(card.lastTriggeredAt!)}',
@@ -357,7 +358,7 @@ class _CardBack extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  '“${card.message}”',
+                  card.secret ? '🔒 Secret message' : '“${card.message}”',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(

@@ -1,11 +1,14 @@
 package com.dfx.nfcpin
 
 import android.content.Intent
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 
-/** Wires [NfcBridge] into the activity lifecycle. Shared by the main app and the tap popup. */
-abstract class NfcFlutterActivity : FlutterActivity() {
+/**
+ * Wires [NfcBridge] into the activity lifecycle. Shared by the main app and the tap popup.
+ * A FragmentActivity because local_auth shows the system BiometricPrompt as a fragment.
+ */
+abstract class NfcFlutterActivity : FlutterFragmentActivity() {
     private var nfc: NfcBridge? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

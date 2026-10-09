@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.NFC" />
+    <!-- Fingerprint/face for app lock and secret cards (normal permission, no prompt). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- Optional so phones without NFC can still install the app and see an explanation. -->
     <uses-feature android:name="android.hardware.nfc" android:required="false" />
 
