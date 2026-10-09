@@ -1,0 +1,45 @@
+package com.dfx.nfcpin
+
+import android.content.Intent
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+
+/** Wires [NfcBridge] into the activity lifecycle. Shared by the main app and the tap popup. */
+abstract class NfcFlutterActivity : FlutterActivity() {
+    private var nfc: NfcBridge? = null
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        nfc = NfcBridge(this, flutterEngine.dartExecutor.binaryMessenger).also {
+            // Runs during onCreate: if a card tap launched us, this is that tap.
+            it.handleIntent(intent, coldStart = true)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        nfc?.handleIntent(intent, coldStart = false)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        nfc?.onResume()
+    }
+
+    override fun onPause() {
+        nfc?.onPause()
+        super.onPause()
+    }
+
+    override fun onStop() {
+        nfc?.onStop()
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        nfc?.dispose()
+        nfc = null
+        super.onDestroy()
+    }
+}
