@@ -69,7 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _addCard() async {
     _stackKey.currentState?.deselect();
-    final added = await Navigator.of(context).push<String>(
+    final added = await Navigator.of(context).push<RegisteredCard>(
       MaterialPageRoute(
         builder: (_) => AddCardScreen(
           platform: widget.platform,
@@ -80,7 +80,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (added != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('"$added" is ready. Give it a tap!')),
+        SnackBar(
+          content: Text('"${added.name}" is ready. Give it a tap!'),
+          action: SnackBarAction(
+            label: 'Test it',
+            onPressed: () => _preview(added),
+          ),
+        ),
       );
     }
   }
@@ -118,6 +124,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       RegisteredTap(card),
       onVerify: () => widget.security.verify('Reveal your secret message'),
+      onRunAction: widget.platform.runAction,
     );
   }
 
@@ -317,6 +324,7 @@ class _RecentTaps extends StatelessWidget {
                         child: CardFace(
                           name: '',
                           style: card.style,
+                          emoji: card.emoji,
                           compact: true,
                           shine: false,
                         ),
@@ -328,7 +336,7 @@ class _RecentTaps extends StatelessWidget {
                           children: [
                             Text(card.name, style: theme.textTheme.titleSmall),
                             Text(
-                              card.secret ? '🔒 Secret message' : card.message,
+                              card.secret ? '🔒 Secret message' : card.summary,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodySmall,

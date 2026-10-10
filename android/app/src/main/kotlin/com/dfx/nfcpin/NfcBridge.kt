@@ -45,6 +45,7 @@ class NfcBridge(private val activity: Activity, messenger: BinaryMessenger) :
     private val main = Handler(Looper.getMainLooper())
     private val methods = MethodChannel(messenger, "nfcpin/nfc")
     private val events = EventChannel(messenger, "nfcpin/nfc_events")
+    private val actions = CardActions(activity, main)
 
     private var sink: EventChannel.EventSink? = null
     // Events raised before Dart subscribes (e.g. the tap that launched the app).
@@ -98,6 +99,7 @@ class NfcBridge(private val activity: Activity, messenger: BinaryMessenger) :
     }
 
     fun dispose() {
+        actions.dispose()
         sounds?.release()
         sounds = null
         scanning = false
@@ -191,6 +193,9 @@ class NfcBridge(private val activity: Activity, messenger: BinaryMessenger) :
             } catch (e: Exception) {
                 result.error("crypto", e.javaClass.simpleName, null)
             }
+            "runAction" -> actions.run(call, result)
+            "listApps" -> actions.listApps(result)
+            "pickContact" -> actions.pickContact(result)
             "playTapSound" -> {
                 playTapSound()
                 result.success(null)
@@ -209,6 +214,9 @@ class NfcBridge(private val activity: Activity, messenger: BinaryMessenger) :
             else -> result.notImplemented()
         }
     }
+
+    fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean =
+        actions.onActivityResult(requestCode, resultCode, data)
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
         sink = events

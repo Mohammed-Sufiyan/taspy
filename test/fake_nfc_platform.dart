@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:nfcpin/features/actions/domain/card_action.dart';
 import 'package:nfcpin/features/nfc/data/nfc_platform.dart';
 import 'package:nfcpin/features/nfc/domain/nfc_models.dart';
 
@@ -67,6 +68,28 @@ class FakeNfcPlatform implements NfcPlatform {
     if (key == 'onboarded') onboarded = value;
     if (key == 'appLock') appLock = value;
   }
+
+  final List<CardAction> ranActions = [];
+
+  /// Result per action type; defaults to done (flashlight: on).
+  final Map<ActionType, ActionResult> actionResults = {};
+  List<InstalledApp> apps = const [];
+  PickedContact? contact;
+
+  @override
+  Future<ActionResult> runAction(CardAction action) async {
+    ranActions.add(action);
+    return actionResults[action.type] ??
+        (action.type == ActionType.flashlight
+            ? ActionResult.on
+            : ActionResult.done);
+  }
+
+  @override
+  Future<List<InstalledApp>> listApps() async => apps;
+
+  @override
+  Future<PickedContact?> pickContact() async => contact;
 
   @override
   Stream<NfcEvent> get events => _events.stream;

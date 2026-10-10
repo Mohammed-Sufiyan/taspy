@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../actions/domain/card_action.dart';
 import '../../nfc/domain/nfc_models.dart';
 import '../data/card_repository.dart';
 import '../domain/registered_card.dart';
@@ -76,8 +77,11 @@ class CardsController extends ChangeNotifier {
     required CardCategory category,
     int style = 0,
     bool secret = false,
+    List<CardAction> actions = const [],
+    String emoji = '',
+    CardEffect effect = CardEffect.shine,
   }) async {
-    _validate(name: name, message: message);
+    _validate(name: name, message: message, actions: actions);
     // Re-read from disk: the tap popup may have changed the file meanwhile.
     final current = await _repository.loadAll();
     for (final c in current) {
@@ -94,6 +98,9 @@ class CardsController extends ChangeNotifier {
       message: message,
       style: style,
       secret: secret,
+      actions: actions,
+      emoji: emoji,
+      effect: effect,
     );
     await _commit([...current, card]);
     return card;
@@ -105,8 +112,15 @@ class CardsController extends ChangeNotifier {
     required String message,
     int? style,
     bool? secret,
+    List<CardAction>? actions,
+    String? emoji,
+    CardEffect? effect,
   }) {
-    _validate(name: name, message: message);
+    _validate(
+      name: name,
+      message: message,
+      actions: actions ?? byId(id)?.actions ?? const [],
+    );
     return _update(
       id,
       (c) => c.copyWith(
@@ -114,6 +128,9 @@ class CardsController extends ChangeNotifier {
         message: message,
         style: style,
         secret: secret,
+        actions: actions,
+        emoji: emoji,
+        effect: effect,
       ),
     );
   }
@@ -132,10 +149,14 @@ class CardsController extends ChangeNotifier {
   Future<void> setEnabled(String id, bool enabled) =>
       _update(id, (c) => c.copyWith(enabled: enabled));
 
-  /// Records a recognised tap: updates the card and appends to the history.
+  /// Records a recognised tap: updates the card (last tap, streak) and
+  /// appends to the history.
   Future<void> markTriggered(String id, {DateTime? at}) async {
     final when = at ?? DateTime.now();
-    await _update(id, (c) => c.copyWith(lastTriggeredAt: when));
+    await _update(
+      id,
+      (c) => c.copyWith(lastTriggeredAt: when, streak: c.streak.tap(when)),
+    );
     final history = await _repository.loadTaps();
     final next = [TapEvent(cardId: id, at: when), ...history];
     await _repository.saveTaps(next.take(maxTaps).toList());
@@ -166,8 +187,15 @@ class CardsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _validate({required String name, required String message}) {
-    final error = CardValidation.name(name) ?? CardValidation.message(message);
+  void _validate({
+    required String name,
+    required String message,
+    required List<CardAction> actions,
+  }) {
+    final error =
+        CardValidation.name(name) ??
+        CardValidation.message(message, optional: actions.isNotEmpty) ??
+        ActionRules.list(actions);
     if (error != null) throw CardRuleException(error);
   }
 }

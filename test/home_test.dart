@@ -65,16 +65,16 @@ void main() {
   ) async {
     await pumpHome(tester, [card('Gym', 'a', 1), card('Metro', 'b', 5)]);
     expect(find.text('Your cards'), findsOneWidget);
-    expect(find.text('Preview'), findsNothing);
+    expect(find.text('Test'), findsNothing);
 
     await tester.tap(find.text('METRO'));
     await tester.pump(const Duration(seconds: 1));
-    expect(find.text('Preview'), findsOneWidget);
+    expect(find.text('Test'), findsOneWidget);
     expect(find.text('Pause'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Close'));
     await tester.pump(const Duration(seconds: 1));
-    expect(find.text('Preview'), findsNothing);
+    expect(find.text('Test'), findsNothing);
   });
 
   testWidgets('swiping the front card up shuffles it to the back', (

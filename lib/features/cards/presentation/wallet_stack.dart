@@ -210,11 +210,9 @@ class WalletStackState extends State<WalletStack> {
       scale = 0.92;
     }
 
-    Widget face = CardFace(
-      name: card.name,
-      style: card.style,
-      enabled: card.enabled,
-      secret: card.secret,
+    Widget face = CardFace.of(
+      card,
+      streak: card.streak.activeOn(DateTime.now()),
       subtitle: card.lastTriggeredAt == null
           ? 'Not tapped yet'
           : 'Last tap ${timeAgo(card.lastTriggeredAt!)}',
@@ -346,19 +344,21 @@ class _CardBack extends StatelessWidget {
                 const Spacer(),
                 Row(
                   children: [
+                    stat(
+                      '🔥 ${card.streak.activeOn(DateTime.now())}',
+                      'day streak',
+                    ),
                     stat('${taps.length}', 'total taps'),
                     stat('$thisWeek', 'this week'),
-                    stat(
-                      card.lastTriggeredAt == null
-                          ? '—'
-                          : timeAgo(card.lastTriggeredAt!),
-                      'last tap',
-                    ),
                   ],
                 ),
                 const Spacer(),
                 Text(
-                  card.secret ? '🔒 Secret message' : '“${card.message}”',
+                  card.secret
+                      ? '🔒 Secret message'
+                      : card.message.isEmpty
+                      ? card.summary
+                      : '“${card.message}”',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -432,7 +432,7 @@ class _ActionPanel extends StatelessWidget {
             children: [
               _Action(
                 icon: Icons.play_arrow_rounded,
-                label: 'Preview',
+                label: 'Test',
                 onTap: () => onPreview(card),
               ),
               _Action(

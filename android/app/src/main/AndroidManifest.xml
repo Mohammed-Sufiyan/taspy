@@ -2,6 +2,8 @@
     <uses-permission android:name="android.permission.NFC" />
     <!-- Fingerprint/face for app lock and secret cards (normal permission, no prompt). -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- "Start a timer" card action (normal permission, no prompt). -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Optional so phones without NFC can still install the app and see an explanation. -->
     <uses-feature android:name="android.hardware.nfc" android:required="false" />
 
@@ -65,6 +67,11 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <!-- "Open an app" card action: lets Tapsy list and launch apps from the launcher. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

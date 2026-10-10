@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../actions/domain/card_action.dart';
 import '../../nfc/data/nfc_platform.dart';
 import '../../nfc/domain/nfc_models.dart';
 import '../domain/registered_card.dart';
@@ -94,6 +95,9 @@ class AddCardController extends ChangeNotifier {
     required String message,
     int style = 0,
     bool secret = false,
+    List<CardAction> actions = const [],
+    String emoji = '',
+    CardEffect effect = CardEffect.shine,
   }) async {
     final tap = firstTap;
     if (step != AddCardStep.ready || tap == null) return null;
@@ -107,6 +111,9 @@ class AddCardController extends ChangeNotifier {
         category: tap.category,
         style: style,
         secret: secret,
+        actions: actions,
+        emoji: emoji,
+        effect: effect,
       );
     } on CardRuleException catch (e) {
       saveError = e.message;

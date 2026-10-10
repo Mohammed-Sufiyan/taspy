@@ -1,6 +1,22 @@
 import 'dart:math';
 
+import '../../actions/domain/card_action.dart';
 import '../../nfc/domain/nfc_models.dart';
+import 'streak.dart';
+
+/// Animated finish on a card face (see `CardFace`).
+enum CardEffect {
+  shine('Tilt shine'),
+  holo('Holo foil'),
+  sparkle('Sparkle'),
+  glow('Glow pulse'),
+  shimmer('Shimmer'),
+  none('None');
+
+  const CardEffect(this.title);
+
+  final String title;
+}
 
 /// A card the user registered as an automation trigger.
 ///
@@ -20,6 +36,10 @@ class RegisteredCard {
     this.lastTriggeredAt,
     this.style = 0,
     this.secret = false,
+    this.actions = const [],
+    this.emoji = '',
+    this.effect = CardEffect.shine,
+    this.streak = Streak.none,
   });
 
   factory RegisteredCard.create({
@@ -29,6 +49,9 @@ class RegisteredCard {
     required String message,
     int style = 0,
     bool secret = false,
+    List<CardAction> actions = const [],
+    String emoji = '',
+    CardEffect effect = CardEffect.shine,
     DateTime? now,
   }) => RegisteredCard(
     id: _newId(),
@@ -40,6 +63,9 @@ class RegisteredCard {
     createdAt: now ?? DateTime.now(),
     style: style,
     secret: secret,
+    actions: List.unmodifiable(actions),
+    emoji: emoji,
+    effect: effect,
   );
 
   factory RegisteredCard.fromJson(Map<String, Object?> json) => RegisteredCard(
@@ -59,6 +85,16 @@ class RegisteredCard {
     },
     style: json['style'] as int? ?? 0,
     secret: json['secret'] as bool? ?? false,
+    actions: List.unmodifiable([
+      for (final a in json['actions'] as List<Object?>? ?? const [])
+        CardAction.fromJson((a! as Map).cast<String, Object?>()),
+    ]),
+    emoji: json['emoji'] as String? ?? '',
+    effect: CardEffect.values.asNameMap()[json['effect']] ?? CardEffect.shine,
+    streak: switch (json['streak']) {
+      final Map<Object?, Object?> m => Streak.fromJson(m.cast()),
+      _ => Streak.none,
+    },
   );
 
   final String id;
@@ -78,6 +114,26 @@ class RegisteredCard {
   /// both in the tap popup and in the app.
   final bool secret;
 
+  /// Run when the card is tapped (see `ActionRules.runOrder`). Optional field
+  /// added without a schema bump: older files have none.
+  final List<CardAction> actions;
+
+  /// Optional sticker drawn on the card face. Optional fields below were
+  /// added without a schema bump: older files get the defaults.
+  final String emoji;
+  final CardEffect effect;
+
+  /// Daily tap streak, updated by `CardsController.markTriggered`.
+  final Streak streak;
+
+  /// One line for lists: the message, or what the card runs if it has none.
+  String get summary {
+    if (message.isNotEmpty) return message;
+    if (actions.isEmpty) return '';
+    final more = actions.length > 1 ? ' +${actions.length - 1}' : '';
+    return '⚡ ${actions.first.title}$more';
+  }
+
   Map<String, Object?> toJson() => {
     'id': id,
     'name': name,
@@ -89,6 +145,10 @@ class RegisteredCard {
     'lastTriggeredAt': lastTriggeredAt?.toIso8601String(),
     'style': style,
     'secret': secret,
+    if (actions.isNotEmpty) 'actions': [for (final a in actions) a.toJson()],
+    if (emoji.isNotEmpty) 'emoji': emoji,
+    if (effect != CardEffect.shine) 'effect': effect.name,
+    if (streak != Streak.none) 'streak': streak.toJson(),
   };
 
   RegisteredCard copyWith({
@@ -98,6 +158,10 @@ class RegisteredCard {
     DateTime? lastTriggeredAt,
     int? style,
     bool? secret,
+    List<CardAction>? actions,
+    String? emoji,
+    CardEffect? effect,
+    Streak? streak,
   }) => RegisteredCard(
     id: id,
     name: name?.trim() ?? this.name,
@@ -109,6 +173,10 @@ class RegisteredCard {
     lastTriggeredAt: lastTriggeredAt ?? this.lastTriggeredAt,
     style: style ?? this.style,
     secret: secret ?? this.secret,
+    actions: actions == null ? this.actions : List.unmodifiable(actions),
+    emoji: emoji ?? this.emoji,
+    effect: effect ?? this.effect,
+    streak: streak ?? this.streak,
   );
 
   static String _newId() {
@@ -135,9 +203,10 @@ abstract final class CardValidation {
     return null;
   }
 
-  static String? message(String? value) {
+  /// The message may be left empty when the card has actions to run.
+  static String? message(String? value, {bool optional = false}) {
     final v = value?.trim() ?? '';
-    if (v.isEmpty) return 'Enter the message to show';
+    if (v.isEmpty && !optional) return 'Enter a message or add an action';
     if (v.length > maxMessageLength) {
       return 'Keep the message under $maxMessageLength characters';
     }

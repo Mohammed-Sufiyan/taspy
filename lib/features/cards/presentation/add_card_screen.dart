@@ -6,16 +6,20 @@ import '../../../shared/motion.dart';
 import '../../../shared/widgets/effects.dart';
 import '../../../shared/widgets/glow_background.dart';
 import '../../../shared/widgets/pop_button.dart';
+import '../../actions/domain/card_action.dart';
+import '../../actions/presentation/actions_editor.dart';
 import '../../nfc/data/nfc_platform.dart';
 import '../../security/security_controller.dart';
+import '../domain/card_template.dart';
 import '../domain/registered_card.dart';
 import 'add_card_controller.dart';
+import 'card_designer.dart';
 import 'card_face.dart';
 import 'card_form.dart';
 import 'cards_controller.dart';
 import 'scan_animation.dart';
 
-/// Pops with the new card's name once it is saved.
+/// Pops with the new card once it is saved.
 class AddCardScreen extends StatefulWidget {
   const AddCardScreen({
     super.key,
@@ -41,7 +45,11 @@ class _AddCardScreenState extends State<AddCardScreen> {
   final _name = TextEditingController();
   final _message = TextEditingController(text: CardValidation.defaultMessage);
   int _style = 0;
+  String _emoji = '';
+  CardEffect _effect = CardEffect.shine;
+  CardTemplate? _template;
   bool _secret = false;
+  List<CardAction> _actions = const [];
   AddCardStep _lastStep = AddCardStep.checkingNfc;
   RegisteredCard? _saved;
 
@@ -80,6 +88,20 @@ class _AddCardScreenState extends State<AddCardScreen> {
     super.dispose();
   }
 
+  void _applyTemplate(CardTemplate t) {
+    setState(() {
+      // Keep a name the user typed; replace an empty or template name.
+      final name = _name.text.trim();
+      if (name.isEmpty || name == _template?.name) _name.text = t.name;
+      _template = t;
+      _message.text = t.message;
+      _style = t.style;
+      _emoji = t.emoji;
+      _effect = t.effect;
+      _actions = t.actions;
+    });
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
@@ -88,6 +110,9 @@ class _AddCardScreenState extends State<AddCardScreen> {
       message: _message.text,
       style: _style,
       secret: _secret,
+      actions: _actions,
+      emoji: _emoji,
+      effect: _effect,
     );
     if (card == null || !mounted) return;
     Haptics.celebrate();
@@ -97,7 +122,7 @@ class _AddCardScreenState extends State<AddCardScreen> {
           ? const Duration(milliseconds: 600)
           : const Duration(milliseconds: 1600),
     );
-    if (mounted) Navigator.of(context).pop(card.name);
+    if (mounted) Navigator.of(context).pop(card);
   }
 
   @override
@@ -321,28 +346,65 @@ class _AddCardScreenState extends State<AddCardScreen> {
     }
     final saving = _c.step == AddCardStep.saving;
     final theme = Theme.of(context);
+    Widget preview = CardFace(
+      name: _name.text.trim(),
+      style: _style,
+      emoji: _emoji,
+      effect: _effect,
+      secret: _secret,
+    );
+    if (!reduceMotion(context)) {
+      // A template turns the card over to its new look.
+      preview = preview
+          .animate(key: ValueKey(_template))
+          .flipH(
+            begin: -0.5,
+            end: 0,
+            duration: 550.ms,
+            curve: Curves.easeOutBack,
+          )
+          .scaleXY(begin: 0.9, end: 1, duration: 550.ms);
+    }
     final items = <Widget>[
+      const SizedBox(height: 20),
+      TemplatePicker(
+        selected: _template,
+        enabled: !saving,
+        onSelected: _applyTemplate,
+      ),
       const SizedBox(height: 20),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: TiltOnDrag(
-          child: CardFace(name: _name.text.trim(), style: _style),
-        ),
+        child: TiltOnDrag(child: preview),
       ),
       const SizedBox(height: 20),
-      Text('Design', style: theme.textTheme.titleSmall),
-      const SizedBox(height: 10),
-      SkinPicker(
-        value: _style,
+      CardDesigner(
+        style: _style,
+        emoji: _emoji,
+        effect: _effect,
         enabled: !saving,
-        onChanged: (v) => setState(() => _style = v),
+        onStyle: (v) => setState(() => _style = v),
+        onEmoji: (v) => setState(() => _emoji = v),
+        onEffect: (v) => setState(() => _effect = v),
       ),
       const SizedBox(height: 20),
       Form(
         key: _formKey,
-        child: CardFormFields(name: _name, message: _message, enabled: !saving),
+        child: CardFormFields(
+          name: _name,
+          message: _message,
+          enabled: !saving,
+          messageOptional: _actions.isNotEmpty,
+        ),
       ),
       const SizedBox(height: 8),
+      ActionsEditor(
+        actions: _actions,
+        platform: widget.platform,
+        enabled: !saving,
+        onChanged: (v) => setState(() => _actions = v),
+      ),
+      const SizedBox(height: 12),
       SecretSwitch(
         value: _secret,
         enabled: !saving,
@@ -462,7 +524,7 @@ class _SavedOverlay extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      CardFace(name: card.name, style: card.style)
+                      CardFace.of(card)
                           .animate()
                           .scale(
                             begin: const Offset(0.7, 0.7),

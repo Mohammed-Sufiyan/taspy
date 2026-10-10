@@ -7,11 +7,16 @@ import '../../../shared/motion.dart';
 import '../../../shared/widgets/glow_background.dart';
 import '../../../shared/widgets/pop_button.dart';
 import '../../../shared/security/auth_service.dart';
+import '../../actions/domain/card_action.dart';
+import '../../actions/presentation/action_tile.dart';
+import '../../actions/presentation/actions_editor.dart';
 import '../../nfc/data/nfc_platform.dart';
 import '../../security/security_controller.dart';
 import '../../tap/tap_app.dart';
 import '../domain/registered_card.dart';
+import '../domain/streak.dart';
 import '../domain/tap_resolver.dart';
+import 'card_designer.dart';
 import 'card_face.dart';
 import 'card_form.dart';
 import 'cards_controller.dart';
@@ -40,7 +45,10 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
   final _name = TextEditingController();
   final _message = TextEditingController();
   int _style = 0;
+  String _emoji = '';
+  CardEffect _effect = CardEffect.shine;
   bool _secret = false;
+  List<CardAction> _actions = const [];
   bool _editing = false;
   bool _busy = false;
 
@@ -105,7 +113,10 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
     _name.text = card.name;
     _message.text = card.message;
     _style = card.style;
+    _emoji = card.emoji;
+    _effect = card.effect;
     _secret = card.secret;
+    _actions = card.actions;
     setState(() => _editing = true);
   }
 
@@ -118,6 +129,9 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
         message: _message.text,
         style: _style,
         secret: _secret,
+        actions: _actions,
+        emoji: _emoji,
+        effect: _effect,
       );
       Haptics.success();
       if (mounted) setState(() => _editing = false);
@@ -161,6 +175,7 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
       context,
       RegisteredTap(card),
       onVerify: () => widget.security.verify('Reveal your secret message'),
+      onRunAction: widget.platform.runAction,
     );
   }
 
@@ -178,17 +193,21 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
         }
         final theme = Theme.of(context);
         final taps = widget.cards.tapsOf(card.id);
-        final weekAgo = DateTime.now().subtract(const Duration(days: 7));
+        final now = DateTime.now();
+        final weekAgo = now.subtract(const Duration(days: 7));
+        final streak = card.streak.activeOn(now);
         final style = _editing ? _style : card.style;
 
         final sections = <Widget>[
           if (_editing) ...[
-            Text('Design', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 10),
-            SkinPicker(
-              value: _style,
+            CardDesigner(
+              style: _style,
+              emoji: _emoji,
+              effect: _effect,
               enabled: !_busy,
-              onChanged: (v) => setState(() => _style = v),
+              onStyle: (v) => setState(() => _style = v),
+              onEmoji: (v) => setState(() => _emoji = v),
+              onEffect: (v) => setState(() => _effect = v),
             ),
             const SizedBox(height: 20),
             Form(
@@ -197,9 +216,17 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
                 name: _name,
                 message: _message,
                 enabled: !_busy,
+                messageOptional: _actions.isNotEmpty,
               ),
             ),
             const SizedBox(height: 8),
+            ActionsEditor(
+              actions: _actions,
+              platform: widget.platform,
+              enabled: !_busy,
+              onChanged: (v) => setState(() => _actions = v),
+            ),
+            const SizedBox(height: 12),
             SecretSwitch(
               value: _secret,
               enabled: !_busy,
@@ -216,20 +243,24 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
           ] else ...[
             Row(
               children: [
+                _Stat(
+                  value: streak > 0 ? '🔥 $streak' : '0',
+                  label: streak == 1 ? 'day streak' : 'days streak',
+                ),
+                const SizedBox(width: 10),
+                _Stat(value: '${card.streak.best}', label: 'best streak'),
+                const SizedBox(width: 10),
                 _Stat(value: '${taps.length}', label: 'total taps'),
-                const SizedBox(width: 10),
-                _Stat(
-                  value: '${taps.where((t) => t.at.isAfter(weekAgo)).length}',
-                  label: 'this week',
-                ),
-                const SizedBox(width: 10),
-                _Stat(
-                  value: card.lastTriggeredAt == null
-                      ? '—'
-                      : timeAgo(card.lastTriggeredAt!),
-                  label: 'last tap',
-                ),
               ],
+            ),
+            const SizedBox(height: 10),
+            _Panel(
+              child: _WeekStrip(
+                taps: taps,
+                now: now,
+                lastTap: card.lastTriggeredAt,
+                thisWeek: taps.where((t) => t.at.isAfter(weekAgo)).length,
+              ),
             ),
             const SizedBox(height: 16),
             _Panel(
@@ -272,16 +303,54 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
                         ),
                       ),
                     )
-                  else
+                  else if (card.message.isNotEmpty)
                     Text(
                       card.message,
                       style: theme.textTheme.titleMedium?.copyWith(height: 1.4),
+                    )
+                  else
+                    Text(
+                      'No message, just actions',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: TapsyColors.textFaint,
+                      ),
                     ),
+                  if (card.actions.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'THEN',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: TapsyColors.textFaint,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    if (card.secret && !_revealed)
+                      Text(
+                        '${card.actions.length} hidden '
+                        '${card.actions.length == 1 ? 'action' : 'actions'}',
+                        style: theme.textTheme.bodyMedium,
+                      )
+                    else
+                      for (final a in ActionRules.runOrder(card.actions))
+                        ActionTile(action: a),
+                  ],
                   const SizedBox(height: 16),
                   PopButton.dark(
-                    label: 'PREVIEW TAP',
+                    label: 'TEST THIS CARD',
                     icon: Icons.play_arrow_rounded,
                     onPressed: () => _preview(card),
+                  ),
+                  const SizedBox(height: 6),
+                  Center(
+                    child: Text(
+                      card.actions.isEmpty
+                          ? 'Shows the popup without tapping the card'
+                          : 'Shows the popup and runs the actions for real',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: TapsyColors.textFaint,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -294,7 +363,7 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
                 title: const Text('Active'),
                 subtitle: Text(
                   card.enabled
-                      ? 'Tapping shows your message'
+                      ? 'Tapping runs this card'
                       : 'Paused: tapping shows “paused”',
                   style: theme.textTheme.bodySmall,
                 ),
@@ -357,6 +426,9 @@ class _CardDetailsScreenState extends State<CardDetailsScreen> {
                       style: style,
                       enabled: card.enabled,
                       secret: _editing ? _secret : card.secret,
+                      emoji: _editing ? _emoji : card.emoji,
+                      effect: _editing ? _effect : card.effect,
+                      streak: streak,
                     ),
                   ),
                 ),
@@ -424,6 +496,121 @@ class _Stat extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The last 7 days as dots (filled = tapped that day), today last.
+class _WeekStrip extends StatelessWidget {
+  const _WeekStrip({
+    required this.taps,
+    required this.now,
+    required this.lastTap,
+    required this.thisWeek,
+  });
+
+  final List<TapEvent> taps;
+  final DateTime now;
+  final DateTime? lastTap;
+  final int thisWeek;
+
+  static const _letters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tappedDays = {for (final t in taps) Streak.daysBetween(t.at, now)};
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              'LAST 7 DAYS',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: TapsyColors.textFaint,
+                letterSpacing: 1.2,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              lastTap == null
+                  ? 'Not tapped yet'
+                  : '$thisWeek this week · last ${timeAgo(lastTap!)}',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            for (var ago = 6; ago >= 0; ago--)
+              _DayDot(
+                letter: _letters[now.subtract(Duration(days: ago)).weekday - 1],
+                on: tappedDays.contains(ago),
+                today: ago == 0,
+                delay: Duration(milliseconds: (6 - ago) * 60),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DayDot extends StatelessWidget {
+  const _DayDot({
+    required this.letter,
+    required this.on,
+    required this.today,
+    required this.delay,
+  });
+
+  final String letter;
+  final bool on;
+  final bool today;
+  final Duration delay;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget dot = Container(
+      width: 34,
+      height: 34,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: on ? TapsyColors.lime : TapsyColors.surfaceHigh,
+        border: Border.all(
+          color: today ? TapsyColors.lime : TapsyColors.outline,
+          width: today ? 2 : 1,
+        ),
+      ),
+      child: on
+          ? const Icon(Icons.check_rounded, size: 18, color: TapsyColors.onLime)
+          : null,
+    );
+    if (on && !reduceMotion(context)) {
+      dot = dot
+          .animate(delay: delay + 300.ms)
+          .scaleXY(
+            begin: 0.3,
+            end: 1,
+            duration: 450.ms,
+            curve: Curves.elasticOut,
+          );
+    }
+    return Column(
+      children: [
+        dot,
+        const SizedBox(height: 6),
+        Text(
+          letter,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: today ? TapsyColors.lime : TapsyColors.textFaint,
+          ),
+        ),
+      ],
     );
   }
 }

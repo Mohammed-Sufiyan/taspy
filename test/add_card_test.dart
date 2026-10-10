@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nfcpin/features/cards/domain/registered_card.dart';
 import 'package:nfcpin/features/cards/presentation/add_card_controller.dart';
 import 'package:nfcpin/features/cards/presentation/add_card_screen.dart';
 import 'package:nfcpin/features/cards/presentation/cards_controller.dart';
@@ -173,9 +174,31 @@ void main() {
     // Live preview on the card face.
     expect(find.text('SBI Card'), findsWidgets);
 
+    // A template fills in the look, message and actions but keeps the name.
+    Future<void> reveal(Finder f, double delta) async {
+      await tester.scrollUntilVisible(f, delta, scrollable: list);
+      await tester.ensureVisible(f);
+    }
+
+    final gym = find.byKey(const ValueKey('template-Gym'));
+    await reveal(gym, -200);
+    await tester.pump();
+    await tester.tap(gym);
+    await tester.pump(const Duration(seconds: 1));
+
     final grape = find.byKey(const ValueKey('skin-2'));
-    await tester.scrollUntilVisible(grape, -200, scrollable: list);
+    await reveal(grape, 200);
+    await tester.pump();
     await tester.tap(grape);
+    final star = find.byKey(const ValueKey('sticker-10')); // ☀️
+    await reveal(star, 200);
+    await tester.pump();
+    await tester.tap(star);
+    final sparkle = find.byKey(const ValueKey('effect-sparkle'));
+    await reveal(sparkle, 200);
+    await tester.pump();
+    await tester.tap(sparkle);
+    await tester.pump();
     final save = find.text('SAVE CARD');
     await tester.scrollUntilVisible(save, 200, scrollable: list);
     await tester.tap(save);
@@ -184,8 +207,13 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     await tester.pump(const Duration(seconds: 1)); // Route pop transition.
     expect(find.text('open'), findsOneWidget); // Back on the previous screen.
-    expect(repo.stored.single.name, 'SBI Card');
-    expect(repo.stored.single.style, 2);
+    final saved = repo.stored.single;
+    expect(saved.name, 'SBI Card');
+    expect(saved.style, 2);
+    expect(saved.emoji, '☀️');
+    expect(saved.effect, CardEffect.sparkle);
+    expect(saved.message, contains('Workout started'));
+    expect(saved.actions.single.minutes, 60);
   }
 
   testWidgets('screen walks through tap, confirm and form', walkThroughScreen);

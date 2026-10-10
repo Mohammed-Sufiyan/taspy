@@ -25,6 +25,13 @@ abstract class NfcFlutterActivity : FlutterFragmentActivity() {
         nfc?.handleIntent(intent, coldStart = false)
     }
 
+    @Deprecated("Needed for the contact picker result")
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (nfc?.onActivityResult(requestCode, resultCode, data) == true) return
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
     override fun onResume() {
         super.onResume()
         nfc?.onResume()

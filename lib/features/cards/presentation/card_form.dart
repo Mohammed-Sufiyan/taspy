@@ -10,11 +10,15 @@ class CardFormFields extends StatelessWidget {
     required this.name,
     required this.message,
     this.enabled = true,
+    this.messageOptional = false,
   });
 
   final TextEditingController name;
   final TextEditingController message;
   final bool enabled;
+
+  /// True when the card has actions, so a message isn't needed.
+  final bool messageOptional;
 
   @override
   Widget build(BuildContext context) {
@@ -40,11 +44,14 @@ class CardFormFields extends StatelessWidget {
           minLines: 2,
           maxLines: 4,
           textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
-            labelText: 'Message to show when tapped',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: messageOptional
+                ? 'Message to show (optional)'
+                : 'Message to show when tapped',
+            border: const OutlineInputBorder(),
           ),
-          validator: CardValidation.message,
+          validator: (v) =>
+              CardValidation.message(v, optional: messageOptional),
         ),
       ],
     );

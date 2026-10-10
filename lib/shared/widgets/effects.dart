@@ -105,6 +105,100 @@ class _RingsPainter extends CustomPainter {
   bool shouldRepaint(_RingsPainter old) => old.t != t;
 }
 
+/// One-shot ripple spreading from where the card touched the phone (the NFC
+/// antenna is usually in the upper middle of the back). Draws nothing when
+/// the user has reduced motion.
+class TapRipple extends StatefulWidget {
+  const TapRipple({
+    super.key,
+    required this.color,
+    this.origin = const Alignment(0, -0.3),
+  });
+
+  final Color color;
+  final Alignment origin;
+
+  @override
+  State<TapRipple> createState() => _TapRippleState();
+}
+
+class _TapRippleState extends State<TapRipple>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1500),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!reduceMotion(context) && _c.value == 0 && !_c.isAnimating) {
+      _c.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (_, _) => CustomPaint(
+          size: Size.infinite,
+          painter: _RipplePainter(_c.value, widget.color, widget.origin),
+        ),
+      ),
+    ),
+  );
+}
+
+class _RipplePainter extends CustomPainter {
+  _RipplePainter(this.t, this.color, this.origin);
+
+  final double t;
+  final Color color;
+  final Alignment origin;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (t == 0 || t == 1) return;
+    final center = origin.alongSize(size);
+    final maxR = size.longestSide;
+    // A quick flash where the card touched.
+    final flash = (1 - t / 0.25).clamp(0.0, 1.0);
+    if (flash > 0) {
+      canvas.drawCircle(
+        center,
+        40 + 30 * (1 - flash),
+        Paint()
+          ..color = color.withValues(alpha: 0.45 * flash)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 24),
+      );
+    }
+    for (var i = 0; i < 3; i++) {
+      final p = ((t - i * 0.12) / 0.75).clamp(0.0, 1.0);
+      if (p == 0 || p == 1) continue;
+      final eased = Curves.easeOutCubic.transform(p);
+      canvas.drawCircle(
+        center,
+        maxR * eased,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3 + 10 * (1 - p)
+          ..color = color.withValues(alpha: 0.55 * (1 - p)),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RipplePainter old) => old.t != t;
+}
+
 /// A circle that pops in and a checkmark that draws itself.
 class AnimatedCheck extends StatelessWidget {
   const AnimatedCheck({super.key, required this.color, this.size = 72});
